@@ -17,6 +17,7 @@
   <img alt="Keycloak" src="https://img.shields.io/badge/Auth-Keycloak-4D4D4D?logo=keycloak&logoColor=white">
   <img alt="Ollama" src="https://img.shields.io/badge/AI-Gemma%20via%20Ollama-000000?logo=ollama&logoColor=white">
   <img alt="PRs welcome" src="https://img.shields.io/badge/PRs-welcome-D7F36B">
+  <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/License-MIT-C9B8FF"></a>
 </p>
 
 <p align="center">
@@ -25,7 +26,8 @@
   <a href="#getting-started">Getting started</a> ·
   <a href="#api">API</a> ·
   <a href="#project-structure">Structure</a> ·
-  <a href="#contributing">Contributing</a>
+  <a href="#contributing">Contributing</a> ·
+  <a href="#license">License</a>
 </p>
 
 ---
@@ -39,14 +41,14 @@ your money went without typing anything in.
 
 ## Features
 
-| | |
+| Feature | What it does |
 | --- | --- |
-| 📩 **Automatic detection** | Reads bank and UPI SMS on Android: recent history on first run, then new payments as they arrive. The same message is never saved twice. |
-| 🏷️ **Smart categories** | Keyword rules for well-known merchants, a person-name check for transfers, and a local LLM (Gemma via Ollama) for the rest. Anything saved while the model is offline is categorised later. |
-| 📊 **Spending insights** | Monthly summary, category breakdown and an activity feed with spent / received filters. |
-| 🔐 **Stays signed in, safely** | Keycloak sign-in with an offline refresh token kept in the Android Keystore. The password is never stored. |
-| ✍️ **Manual entries** | Add cash or missed payments by hand and edit your profile. |
-| 🧾 **Audit logging** | Every API request is recorded for troubleshooting. |
+| **Automatic detection** | Reads bank and UPI SMS on Android: recent history on first run, then new payments as they arrive. The same message is never saved twice. |
+| **Smart categories** | Keyword rules for well-known merchants, a person-name check for transfers, and a local LLM (Gemma via Ollama) for the rest. Anything saved while the model is offline is categorised later. |
+| **Spending insights** | Monthly summary, category breakdown and an activity feed with spent / received filters. |
+| **Stays signed in, safely** | Keycloak sign-in with an offline refresh token kept in the Android Keystore. The password is never stored. |
+| **Manual entries** | Add cash or missed payments by hand and edit your profile. |
+| **Audit logging** | Every API request is recorded for troubleshooting. |
 
 > **Privacy:** messages are parsed on the device; only the payment details
 > (amount, merchant, bank, time) are sent to *your own* API. OTPs,
@@ -252,5 +254,11 @@ Issues and pull requests are welcome!
 Good first contributions: SMS formats from more banks
 (`frontend/lib/services/payment_parser.dart`) and merchant keywords
 (`backend/internal/expense/category.go`).
+
+## License
+
+Released under the [MIT License](LICENSE). You are free to use, modify and
+distribute it, including commercially, as long as the copyright notice is
+kept.
 
 <p align="center">Made with ☕ and too many UPI notifications.</p>
