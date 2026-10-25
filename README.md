@@ -1,8 +1,14 @@
-# kharcha
+<p align="center">
+  <img src="docs/assets/logo.svg" alt="kharcha logo" width="120">
+</p>
 
-Open-source expense tracker that reads payment messages (bank SMS, UPI
-notifications), detects the amount, merchant and category, and turns them
-into spending analytics.
+<h1 align="center">kharcha</h1>
+
+<p align="center">
+  Open-source expense tracker that reads payment messages (bank SMS, UPI
+  notifications), detects the amount, merchant and category, and turns them
+  into spending analytics.
+</p>
 
 ```
 backend/    Go API (chi, GORM + Postgres, Keycloak auth)
