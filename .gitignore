@@ -1,0 +1,26 @@
+# macOS
+.DS_Store
+
+# Editors
+nvim.log
+.idea/
+*.iml
+.vscode/
+
+# Dart/Flutter tool output (includes the debug Chrome profile with cookies)
+.dart_tool/
+
+# Go build output
+/backend/bin/
+*.test
+*.out
+
+# Local Docker setup (kept out of the repo)
+docker-compose*.yml
+compose*.yml
+Dockerfile*
+.dockerignore
+
+# Local environment overrides
+.env
+.env.local
