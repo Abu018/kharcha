@@ -26,6 +26,11 @@ func (s *Service) UpdateProfile(ctx context.Context, userID uuid.UUID, u Update)
 	return s.repo.UpdateProfile(ctx, userID, u)
 }
 
+// ListUsers returns the people the signed-in user can add to a group.
+func (s *Service) ListUsers(ctx context.Context, userID uuid.UUID, query string, limit int) ([]models.User, error) {
+	return s.repo.ListUsers(ctx, userID, strings.TrimSpace(query), limit)
+}
+
 func trimmed(s *string) *string {
 	if s == nil {
 		return nil

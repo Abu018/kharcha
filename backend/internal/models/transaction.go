@@ -23,7 +23,7 @@ type Transaction struct {
 
 	// When the payment happened; for SMS imports this is the SMS time.
 	OccurredAt time.Time `gorm:"not null;default:CURRENT_TIMESTAMP;index" json:"occurred_at"`
-	// manual or sms.
+	// manual, sms or notification.
 	Source string `gorm:"size:20;not null;default:manual" json:"source"`
 	// Client-side identifier of the imported message. Unique per user so the
 	// same SMS is never saved twice; NULL for manual entries.

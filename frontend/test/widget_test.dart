@@ -8,7 +8,9 @@ import 'package:my_app/api/profile_api.dart';
 import 'package:my_app/main.dart';
 import 'package:my_app/models/auth_session.dart';
 import 'package:my_app/models/expense.dart';
+import 'package:my_app/models/spending_chart.dart';
 import 'package:my_app/screens/home_screen.dart';
+import 'package:my_app/services/notification_source.dart';
 import 'package:my_app/services/session_store.dart';
 import 'package:my_app/services/sms_source.dart';
 
@@ -28,12 +30,14 @@ Widget _app({
   ProfileApi? profileApi,
   ExpenseApi? expenseApi,
   SmsSource? smsSource,
+  NotificationSource? notificationSource,
   SessionStore? sessionStore,
 }) => MyApp(
   authApi: authApi,
   profileApi: profileApi,
   expenseApi: expenseApi ?? _FakeExpenseApi(_echo),
   smsSource: smsSource ?? _FakeSms(),
+  notificationSource: notificationSource ?? _FakeNotifications(),
   sessionStore: sessionStore ?? _FakeStore(),
 );
 
@@ -694,7 +698,7 @@ void main() {
     expect(api.created.single.source, 'sms');
     expect(api.created.single.sourceRef, 'sms:1');
     expect(api.created.single.amountPaise, 25000);
-    expect(find.text('Added 1 payment from your messages'), findsOneWidget);
+    expect(find.text('Added 1 payment automatically'), findsOneWidget);
     expect(find.text('Swiggy'), findsOneWidget);
     expect(find.text('Auto-detect is on'), findsOneWidget);
     expect(sms.lastSyncs['last_sms_sync:user-1'], isNotNull);
@@ -745,6 +749,150 @@ void main() {
       ),
       findsOneWidget,
     );
+  });
+
+  testWidgets(
+    'turning on notification access imports queued payment notifications',
+    (tester) async {
+      final api = _FakeExpenseApi(_echo);
+      final notifications = _FakeNotifications(
+        supported: true,
+        queued: [
+          _notification('notif:1', '₹250 paid to Swiggy', 'Paid via HDFC Bank'),
+          _notification('notif:2', 'Win ₹100 cashback', 'Scratch card waiting'),
+        ],
+      );
+      await _pump(
+        tester,
+        _app(
+          authApi: _FakeAuthApi(onLogin: () => _session),
+          expenseApi: api,
+          notificationSource: notifications,
+        ),
+      );
+
+      await _signIn(tester);
+      await tester.tap(find.byKey(const Key('enable-notifications')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('notification-disclosure')), findsOneWidget);
+
+      await tester.tap(
+        find.byKey(const Key('notification-disclosure-continue')),
+      );
+      await tester.pumpAndSettle();
+      expect(notifications.settingsOpened, 1);
+      expect(api.created, isEmpty);
+
+      // The user turns on access in Android settings and comes back.
+      notifications.access = true;
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pumpAndSettle();
+
+      expect(api.created, hasLength(1));
+      expect(api.created.single.source, 'notification');
+      expect(api.created.single.sourceRef, 'notif:1');
+      expect(api.created.single.bankName, 'Google Pay');
+      expect(find.text('Swiggy'), findsOneWidget);
+      expect(find.text('Auto-detect is on'), findsOneWidget);
+      expect(notifications.queued, isEmpty);
+    },
+  );
+
+  testWidgets('a payment notification posted while the app is open is added', (
+    tester,
+  ) async {
+    final api = _FakeExpenseApi(_echo);
+    final notifications = _FakeNotifications(supported: true, access: true);
+    await _pump(
+      tester,
+      _app(
+        authApi: _FakeAuthApi(onLogin: () => _session),
+        expenseApi: api,
+        notificationSource: notifications,
+      ),
+    );
+
+    await _signIn(tester);
+    expect(find.text('Auto-detect is on'), findsOneWidget);
+    expect(find.byKey(const Key('enable-notifications')), findsNothing);
+
+    notifications.incomingController.add(
+      _notification('notif:live', 'Paid ₹99 to Zomato', ''),
+    );
+    await tester.pumpAndSettle();
+
+    expect(api.created.single.sourceRef, 'notif:live');
+    expect(find.text('Spent ₹99.00 · Zomato'), findsOneWidget);
+    expect(notifications.acknowledged, contains('notif:live'));
+  });
+
+  testWidgets('the monthly chart loads after sign in and after saving', (
+    tester,
+  ) async {
+    const months = [
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', //
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+    ];
+    final api = _FakeExpenseApi(
+      _echo,
+      chart: SpendingChart(
+        title: 'Spent in 2026',
+        xLabel: 'Month',
+        yLabel: 'Spent (₹)',
+        points: [
+          for (final (i, m) in months.indexed)
+            ChartPoint(label: m, paise: i == 1 ? 20000 : 1000),
+        ],
+      ),
+    );
+    await _pump(
+      tester,
+      _app(
+        authApi: _FakeAuthApi(onLogin: () => _session),
+        expenseApi: api,
+      ),
+    );
+
+    await _signIn(tester);
+    expect(find.text('Spent in 2026'), findsOneWidget);
+    expect(find.byKey(const Key('monthly-chart')), findsOneWidget);
+    expect(api.chartLoads, 1);
+
+    await tester.tap(find.byKey(const Key('add-expense-button')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('expense-amount-field')),
+      '120',
+    );
+    await tester.enterText(find.byKey(const Key('expense-bank-field')), 'HDFC');
+    await tester.ensureVisible(find.byKey(const Key('expense-save-button')));
+    await tester.tap(find.byKey(const Key('expense-save-button')));
+    await tester.pumpAndSettle();
+
+    expect(api.chartLoads, 2);
+  });
+
+  testWidgets('declining the notification explanation opens nothing', (
+    tester,
+  ) async {
+    final notifications = _FakeNotifications(supported: true);
+    await _pump(
+      tester,
+      _app(
+        authApi: _FakeAuthApi(onLogin: () => _session),
+        notificationSource: notifications,
+      ),
+    );
+
+    await _signIn(tester);
+    await tester.tap(find.byKey(const Key('enable-notifications')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Not now'));
+    await tester.pumpAndSettle();
+
+    expect(notifications.settingsOpened, 0);
+    expect(find.byKey(const Key('enable-notifications')), findsOneWidget);
   });
 }
 
@@ -811,11 +959,29 @@ class _FakeProfileApi extends ProfileApi {
 }
 
 class _FakeExpenseApi extends ExpenseApi {
-  _FakeExpenseApi(this._create, {this.history = const []});
+  _FakeExpenseApi(this._create, {this.history = const [], this.chart});
 
   final Expense Function(String token, ExpenseInput input) _create;
   final List<Expense> history;
   final created = <ExpenseInput>[];
+
+  /// What `GET /expenses/monthly` returns; `null` fails like being offline,
+  /// which hides the chart.
+  SpendingChart? chart;
+  var chartLoads = 0;
+
+  @override
+  Future<SpendingChart> monthlySpending({
+    required String accessToken,
+    int? year,
+  }) async {
+    chartLoads++;
+    final chart = this.chart;
+    if (chart == null) {
+      throw const ApiException('offline');
+    }
+    return chart;
+  }
 
   @override
   Future<Expense?> createExpense({
@@ -860,6 +1026,9 @@ class _FakeSms extends SmsSource {
   bool get isSupported => supported;
 
   @override
+  Future<bool> isDeclared() async => supported;
+
+  @override
   Future<bool> hasPermission() async => granted;
 
   @override
@@ -881,6 +1050,51 @@ class _FakeSms extends SmsSource {
   Future<void> setLastSync(String key, DateTime value) async =>
       lastSyncs[key] = value;
 }
+
+class _FakeNotifications extends NotificationSource {
+  _FakeNotifications({
+    this.supported = false,
+    this.access = false,
+    List<PaymentNotification> queued = const [],
+  }) : queued = [...queued];
+
+  final bool supported;
+  bool access;
+  final List<PaymentNotification> queued;
+  final acknowledged = <String>[];
+  var settingsOpened = 0;
+  final incomingController = StreamController<PaymentNotification>.broadcast();
+
+  @override
+  bool get isSupported => supported;
+
+  @override
+  Future<bool> hasAccess() async => access;
+
+  @override
+  Future<void> openSettings() async => settingsOpened++;
+
+  @override
+  Future<List<PaymentNotification>> pending() async => [...queued];
+
+  @override
+  Future<void> acknowledge(List<String> refs) async {
+    acknowledged.addAll(refs);
+    queued.removeWhere((n) => refs.contains(n.ref));
+  }
+
+  @override
+  Stream<PaymentNotification> incoming() => incomingController.stream;
+}
+
+PaymentNotification _notification(String ref, String title, String text) =>
+    PaymentNotification(
+      ref: ref,
+      app: 'Google Pay',
+      title: title,
+      text: text,
+      date: DateTime.now().subtract(const Duration(minutes: 5)),
+    );
 
 class _FakeStore extends SessionStore {
   _FakeStore({this.token, this.email});

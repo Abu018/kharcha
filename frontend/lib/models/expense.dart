@@ -34,8 +34,8 @@ String formatPaise(int paise, {String currency = 'INR', bool decimals = true}) {
   return '${negative ? '-' : ''}$prefix$buffer';
 }
 
-/// Fields for a new expense, typed in or detected from an SMS. Amounts are in
-/// paise.
+/// Fields for a new expense, typed in or detected from an SMS or app
+/// notification. Amounts are in paise.
 class ExpenseInput {
   const ExpenseInput({
     required this.amountPaise,
@@ -63,10 +63,11 @@ class ExpenseInput {
   /// When the payment happened; the server uses "now" when omitted.
   final DateTime? occurredAt;
 
-  /// `manual` or `sms`.
+  /// `manual`, `sms` or `notification`.
   final String source;
 
-  /// Identifies the SMS this came from so it is only saved once.
+  /// Identifies the SMS or notification this came from so it is only saved
+  /// once.
   final String? sourceRef;
 
   Map<String, Object> toJson() => {
@@ -137,13 +138,13 @@ class Expense {
   /// decide or was unavailable.
   final String category;
 
-  /// `manual` or `sms`.
+  /// `manual`, `sms` or `notification`.
   final String source;
   final DateTime? occurredAt;
   final DateTime? createdAt;
 
   bool get isCredit => type == 'credit';
-  bool get isAutoDetected => source == 'sms';
+  bool get isAutoDetected => source == 'sms' || source == 'notification';
 
   /// Payment time, falling back to when it was saved.
   DateTime? get when => occurredAt ?? createdAt;

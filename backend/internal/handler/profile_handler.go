@@ -35,7 +35,7 @@ type TransactionInput struct {
 
 	// Optional; defaults to now.
 	OccurredAt *time.Time `json:"occurred_at"`
-	Source     string     `json:"source" validate:"omitempty,oneof=manual sms"`
+	Source     string     `json:"source" validate:"omitempty,oneof=manual sms notification"`
 	SourceRef  string     `json:"source_ref" validate:"max=100"`
 }
 type ProfileHandler struct {
@@ -91,6 +91,33 @@ func (h *ProfileHandler) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	response.JSON(w, http.StatusOK, response.Response{Success: true, Message: "profile updated", Data: profileData(user)})
+}
+
+const maxUserResults = 50
+
+// ListUsers handles GET /api/v1/users?q=, the people that can be added to a
+// group. Only names and emails are returned.
+func (h *ProfileHandler) ListUsers(w http.ResponseWriter, r *http.Request) {
+	userID, ok := userIDFrom(w, r)
+	if !ok {
+		return
+	}
+	users, err := h.profile.ListUsers(r.Context(), userID, r.URL.Query().Get("q"), maxUserResults)
+	if err != nil {
+		log.Printf("list users for %s: %v", userID, err)
+		response.JSON(w, http.StatusInternalServerError, response.Response{Success: false, Message: "could not load users"})
+		return
+	}
+	data := make([]map[string]any, 0, len(users))
+	for _, u := range users {
+		data = append(data, map[string]any{
+			"user_id":    u.ID,
+			"email":      u.Email,
+			"first_name": u.FirstName,
+			"last_name":  u.LastName,
+		})
+	}
+	response.JSON(w, http.StatusOK, response.Response{Success: true, Message: "users", Data: data})
 }
 
 func profileData(user models.User) map[string]any {

@@ -37,6 +37,10 @@ class SmsSource {
   bool get isSupported =>
       !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
 
+  /// Whether this build asks for SMS access at all. Builds for Google Play
+  /// leave the permissions out of the manifest, and SMS import is hidden.
+  Future<bool> isDeclared() => _call<bool>('isDeclared', false);
+
   Future<bool> hasPermission() => _call<bool>('hasPermission', false);
 
   /// Shows the system permission prompt. Returns whether access was granted.

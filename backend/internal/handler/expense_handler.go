@@ -134,6 +134,44 @@ func (h *ExpenseHandler) Expense(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// Monthly returns a chart of how much the user spent in each month of
+// ?year=YYYY (default: the current year in India), Jan to Dec.
+func (h *ExpenseHandler) Monthly(w http.ResponseWriter, r *http.Request) {
+	userID, ok := userIDFrom(w, r)
+	if !ok {
+		return
+	}
+
+	year := time.Now().In(indiaTime).Year()
+	if raw := r.URL.Query().Get("year"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 2000 || n > 2100 {
+			response.JSON(w, http.StatusBadRequest, response.Response{
+				Success: false,
+				Message: "year must be a year like 2026",
+			})
+			return
+		}
+		year = n
+	}
+
+	chart, err := h.expense.MonthlyChart(userID, year)
+	if err != nil {
+		log.Printf("monthly chart: %v", err)
+		response.JSON(w, http.StatusInternalServerError, response.Response{
+			Success: false,
+			Message: "failed to load monthly spending",
+		})
+		return
+	}
+
+	response.JSON(w, http.StatusOK, response.Response{
+		Success: true,
+		Message: "ok",
+		Data:    chart,
+	})
+}
+
 // List returns the user's transactions, newest first. Optional
 // ?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD limit them to those days.
 func (h *ExpenseHandler) List(w http.ResponseWriter, r *http.Request) {
@@ -180,5 +218,39 @@ func (h *ExpenseHandler) List(w http.ResponseWriter, r *http.Request) {
 		Success: true,
 		Message: "ok",
 		Data:    txs,
+	})
+}
+
+type UserID struct {
+	UserID    []string `json:"userIDs"`
+	GroupName string   `json:"name"`
+}
+
+func (h *ExpenseHandler) CreateGroup(w http.ResponseWriter, r *http.Request) {
+	userID, ok := userIDFrom(w, r)
+	if !ok {
+		response.JSON(w, http.StatusUnauthorized, response.Response{Success: false, Message: "StatusUnauthorized"})
+		return
+	}
+	var input UserID
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		response.JSON(w, http.StatusBadRequest, response.Response{Success: false, Message: "Unable to bind  the input"})
+		return
+	}
+	input.GroupName = strings.TrimSpace(input.GroupName)
+	if input.GroupName == "" || len(input.UserID) < 1 {
+		response.JSON(w, http.StatusBadRequest, response.Response{Success: false, Message: "At least one userID and GroupName is requred"})
+		return
+	}
+	groupID, err := h.expense.CreateGroup(userID, input.UserID, input.GroupName)
+	if err != nil {
+		log.Printf("create group: %v", err)
+		response.JSON(w, http.StatusBadRequest, response.Response{Success: false, Message: "Could not create the group. Check the member IDs."})
+		return
+	}
+	response.JSON(w, http.StatusCreated, response.Response{
+		Success: true,
+		Message: "Group created",
+		Data:    map[string]string{"id": groupID, "name": input.GroupName},
 	})
 }

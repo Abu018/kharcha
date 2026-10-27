@@ -1,5 +1,6 @@
 import 'package:http/http.dart' as http;
 
+import '../models/app_user.dart';
 import 'api_client.dart';
 
 class Profile {
@@ -49,6 +50,30 @@ class ProfileApi {
       throw const ApiException('Unexpected response from the server.');
     }
     return Profile.fromJson(data);
+  }
+
+  /// `GET /api/v1/users`: other users, by name, whose name or email
+  /// contains [query]. Everyone (up to 50) when [query] is empty.
+  Future<List<AppUser>> listUsers({
+    required String accessToken,
+    String query = '',
+  }) async {
+    final search = query.trim();
+    final envelope = await _api.send(
+      'GET',
+      search.isEmpty
+          ? '/api/v1/users'
+          : '/api/v1/users?${Uri(queryParameters: {'q': search}).query}',
+      accessToken: accessToken,
+    );
+    final data = envelope['data'];
+    if (data is! List) {
+      return const [];
+    }
+    return [
+      for (final item in data)
+        if (item is Map<String, dynamic>) AppUser.fromJson(item),
+    ];
   }
 
   /// `PUT /api/v1/profile`. `null` age or salary leaves the saved value

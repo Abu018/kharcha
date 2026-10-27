@@ -1,0 +1,8 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Reads bank/UPI SMS to record payments automatically. Only in the
+         full flavor: Google Play allows these permissions only after an
+         approved SMS Permissions Declaration. -->
+    <uses-permission android:name="android.permission.READ_SMS"/>
+    <uses-permission android:name="android.permission.RECEIVE_SMS"/>
+    <uses-feature android:name="android.hardware.telephony" android:required="false"/>
+</manifest>

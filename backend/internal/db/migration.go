@@ -11,5 +11,8 @@ func Migration(db *gorm.DB) error {
 		&models.AuditLog{},
 		&models.User{},
 		&models.Transaction{},
+		&models.
+			Group{},
+		&models.GroupMembers{},
 	)
 }

@@ -1,4 +1,5 @@
 import '../models/expense.dart';
+import 'notification_source.dart';
 import 'sms_source.dart';
 
 /// Turns a bank or UPI transaction SMS into an [ExpenseInput], or returns
@@ -45,6 +46,91 @@ ExpenseInput? parsePaymentSms(SmsMessageData sms) {
     sourceRef: sms.ref,
   );
 }
+
+/// Turns a notification from a UPI or bank app into an [ExpenseInput], or
+/// returns `null` for anything that is not a completed payment (offers,
+/// rewards, reminders, requests, pending or failed payments).
+ExpenseInput? parsePaymentNotification(PaymentNotification notification) {
+  final body = [notification.title, notification.text]
+      .map((s) => s.replaceAll(RegExp(r'\s+'), ' ').trim())
+      .where((s) => s.isNotEmpty)
+      .join('. ');
+  final lower = body.toLowerCase();
+
+  if (body.isEmpty ||
+      _ignored.any(lower.contains) ||
+      _ignoredNotifications.any(lower.contains)) {
+    return null;
+  }
+
+  final type = _toYou.hasMatch(lower) ? 'credit' : _type(lower);
+  if (type == null) {
+    return null;
+  }
+  final amount = _amountPaise(body);
+  if (amount == null) {
+    return null;
+  }
+
+  final upi = _upiId(body);
+  var vendor = _vendor(body, type);
+  if (vendor.isEmpty && type == 'credit') {
+    final sender = _sentToYou.firstMatch(body)?.group(1);
+    vendor = sender == null ? '' : _cleanVendor(sender);
+  }
+  if (vendor.isEmpty && upi.isNotEmpty) {
+    vendor = _prettify(upi.split('@').first);
+  }
+  // Chat-style notifications (PhonePe) put the other person in the title.
+  final title = notification.title.trim();
+  if (vendor.isEmpty &&
+      !_amount.hasMatch(title) &&
+      !_genericTitle.hasMatch(title)) {
+    vendor = _cleanVendor(title);
+  }
+
+  return ExpenseInput(
+    amountPaise: amount,
+    bankName: notification.app.isEmpty ? 'UPI' : notification.app,
+    accountType: _accountType(lower),
+    type: type,
+    vendor: vendor,
+    vendorUpi: upi,
+    occurredAt: notification.date,
+    source: 'notification',
+    sourceRef: notification.ref,
+  );
+}
+
+/// UPI apps post these alongside payments.
+const _ignoredNotifications = [
+  'scratch card',
+  'reward',
+  'offer',
+  'pay now',
+  'reminder',
+  'request',
+  'pending',
+  'processing',
+  'expires',
+  'expiring',
+  'recharge now',
+];
+
+/// "sent you ₹500" is a credit even though "sent" usually means a debit.
+final _toYou = RegExp(r'\b(?:sent|paid|transferred) you\b');
+
+/// Titles that describe the payment rather than name who was paid.
+final _genericTitle = RegExp(
+  r'payment|paid|received|sent|success|money|transaction|transfer|debit|credit|upi|bank',
+  caseSensitive: false,
+);
+
+/// "Ravi Kumar sent you ₹500": the sender comes first.
+final _sentToYou = RegExp(
+  r"(?:^|\. )([A-Za-z][A-Za-z' ]{1,40}?) (?:has )?(?:sent|paid|transferred) you\b",
+  caseSensitive: false,
+);
 
 const _ignored = [
   'otp',

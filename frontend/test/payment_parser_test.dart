@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:my_app/services/notification_source.dart';
 import 'package:my_app/services/payment_parser.dart';
 import 'package:my_app/services/sms_source.dart';
 
@@ -162,4 +163,99 @@ void main() {
       test(name, () => expect(parsePaymentSms(sms(address, body)), isNull));
     }
   });
+
+  group('detects payment notifications', () {
+    test('Google Pay payment', () {
+      final p = parsePaymentNotification(
+        notification('Google Pay', '₹250 paid to Swiggy', 'Paid via HDFC Bank'),
+      )!;
+      expect(p.type, 'debit');
+      expect(p.amountPaise, 25000);
+      expect(p.vendor, 'Swiggy');
+      expect(p.bankName, 'Google Pay');
+      expect(p.source, 'notification');
+      expect(p.sourceRef, 'notif:test');
+      expect(p.occurredAt, _date);
+    });
+
+    test('PhonePe payment in the text only', () {
+      final p = parsePaymentNotification(
+        notification(
+          'PhonePe',
+          'Payment successful',
+          'Paid ₹1,299.50 to Reliance Fresh',
+        ),
+      )!;
+      expect(p.type, 'debit');
+      expect(p.amountPaise, 129950);
+      expect(p.vendor, 'Reliance Fresh');
+    });
+
+    test('money sent to you is a credit from the sender', () {
+      final p = parsePaymentNotification(
+        notification(
+          'Google Pay',
+          'Money received',
+          'Ravi Kumar sent you ₹500',
+        ),
+      )!;
+      expect(p.type, 'credit');
+      expect(p.amountPaise, 50000);
+      expect(p.vendor, 'Ravi Kumar');
+    });
+
+    test('PhonePe chat payment names the contact in the title', () {
+      final sent = parsePaymentNotification(
+        notification('PhonePe', 'Ravi Kumar', '₹100 sent'),
+      )!;
+      expect(sent.type, 'debit');
+      expect(sent.amountPaise, 10000);
+      expect(sent.vendor, 'Ravi Kumar');
+
+      final received = parsePaymentNotification(
+        notification('PhonePe', 'Ravi Kumar', 'Sent you ₹100'),
+      )!;
+      expect(received.type, 'credit');
+      expect(received.vendor, 'Ravi Kumar');
+    });
+
+    test('received from', () {
+      final p = parsePaymentNotification(
+        notification('Paytm', 'Received ₹75 from Anjali', ''),
+      )!;
+      expect(p.type, 'credit');
+      expect(p.vendor, 'Anjali');
+    });
+  });
+
+  group('ignores notifications that are not payments', () {
+    for (final (name, title, text) in [
+      ('rewards', 'You won a scratch card', 'Scratch to win up to ₹100'),
+      ('offers', 'Flat ₹50 off', 'Offer on your next recharge'),
+      ('requests', 'Ramesh requested ₹200', 'Tap to pay'),
+      ('pending payments', 'Payment pending', '₹300 to Zomato is processing'),
+      (
+        'bill reminders',
+        'Electricity bill of ₹1,200',
+        'Pay now to avoid late fee',
+      ),
+      ('no amount', 'Ravi sent you a message', 'Hi!'),
+    ]) {
+      test(name, () {
+        expect(
+          parsePaymentNotification(notification('Google Pay', title, text)),
+          isNull,
+        );
+      });
+    }
+  });
 }
+
+PaymentNotification notification(String app, String title, String text) =>
+    PaymentNotification(
+      ref: 'notif:test',
+      app: app,
+      title: title,
+      text: text,
+      date: _date,
+    );

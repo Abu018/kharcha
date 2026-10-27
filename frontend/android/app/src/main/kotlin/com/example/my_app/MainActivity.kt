@@ -1,13 +1,16 @@
 package com.example.my_app
 
 import android.Manifest
+import android.content.ActivityNotFoundException
 import android.content.BroadcastReceiver
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.os.Build
+import android.provider.Settings
 import android.provider.Telephony
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -21,6 +24,10 @@ import java.security.MessageDigest
  * - `my_app/sms` (method channel): permissions, reading the inbox, and
  *   remembering how far the last sync got.
  * - `my_app/sms/incoming` (event channel): SMS received while the app runs.
+ * - `my_app/notifications` (method channel): notification access and the
+ *   payment notifications [PaymentNotificationListener] has queued.
+ * - `my_app/notifications/incoming` (event channel): payment notifications
+ *   posted while the app runs.
  */
 class MainActivity : FlutterActivity() {
     private var pendingPermissionResult: MethodChannel.Result? = null
@@ -32,6 +39,7 @@ class MainActivity : FlutterActivity() {
 
         MethodChannel(messenger, "my_app/sms").setMethodCallHandler { call, result ->
             when (call.method) {
+                "isDeclared" -> result.success(smsPermissionDeclared())
                 "hasPermission" -> result.success(hasSmsPermission())
                 "requestPermission" -> requestSmsPermission(result)
                 "readInbox" -> {
@@ -76,11 +84,67 @@ class MainActivity : FlutterActivity() {
                 }
             },
         )
+
+        MethodChannel(messenger, "my_app/notifications").setMethodCallHandler { call, result ->
+            when (call.method) {
+                "hasAccess" -> result.success(hasNotificationAccess())
+                "openSettings" -> {
+                    openNotificationSettings()
+                    result.success(null)
+                }
+                "pending" -> result.success(PaymentNotifications.pending(this))
+                "acknowledge" -> {
+                    PaymentNotifications.remove(this, call.argument<List<String>>("refs").orEmpty())
+                    result.success(null)
+                }
+                else -> result.notImplemented()
+            }
+        }
+
+        EventChannel(messenger, "my_app/notifications/incoming").setStreamHandler(
+            object : EventChannel.StreamHandler {
+                override fun onListen(arguments: Any?, events: EventChannel.EventSink) {
+                    PaymentNotifications.listener = { events.success(it) }
+                }
+
+                override fun onCancel(arguments: Any?) {
+                    PaymentNotifications.listener = null
+                }
+            },
+        )
     }
 
     override fun onDestroy() {
         unregisterSmsReceiver()
+        PaymentNotifications.listener = null
         super.onDestroy()
+    }
+
+    private fun listenerComponent() = ComponentName(this, PaymentNotificationListener::class.java)
+
+    private fun hasNotificationAccess(): Boolean {
+        val enabled = Settings.Secure.getString(contentResolver, "enabled_notification_listeners")
+            ?: return false
+        val me = listenerComponent()
+        return enabled.split(':').any { ComponentName.unflattenFromString(it) == me }
+    }
+
+    /** Opens this app's notification access page, or the full list where that is not available. */
+    private fun openNotificationSettings() {
+        val list = Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
+        val intent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            Intent(Settings.ACTION_NOTIFICATION_LISTENER_DETAIL_SETTINGS).putExtra(
+                Settings.EXTRA_NOTIFICATION_LISTENER_COMPONENT_NAME,
+                listenerComponent().flattenToString(),
+            )
+        } else {
+            list
+        }
+        try {
+            startActivity(intent)
+        } catch (_: ActivityNotFoundException) {
+            startActivity(list)
+        }
     }
 
     override fun onRequestPermissionsResult(
@@ -97,6 +161,16 @@ class MainActivity : FlutterActivity() {
 
     private fun prefs(): SharedPreferences =
         getSharedPreferences("auto_detect", Context.MODE_PRIVATE)
+
+    /** False when the manifest leaves the SMS permissions out (Play builds). */
+    @Suppress("DEPRECATION")
+    private fun smsPermissionDeclared(): Boolean {
+        val requested = packageManager
+            .getPackageInfo(packageName, PackageManager.GET_PERMISSIONS)
+            .requestedPermissions ?: return false
+        return Manifest.permission.READ_SMS in requested &&
+            Manifest.permission.RECEIVE_SMS in requested
+    }
 
     private fun hasSmsPermission(): Boolean =
         checkSelfPermission(Manifest.permission.READ_SMS) == PackageManager.PERMISSION_GRANTED &&

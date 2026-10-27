@@ -16,6 +16,10 @@ func (f *fakeRepo) GetProfile(context.Context, uuid.UUID) (models.User, error) {
 	return models.User{}, nil
 }
 
+func (f *fakeRepo) ListUsers(context.Context, uuid.UUID, string, int) ([]models.User, error) {
+	return nil, nil
+}
+
 func (f *fakeRepo) UpdateProfile(_ context.Context, _ uuid.UUID, u Update) (models.User, error) {
 	f.got = u
 	return models.User{}, nil

@@ -3,17 +3,20 @@ import 'package:flutter/material.dart';
 import '../api/profile_api.dart';
 import '../models/auth_session.dart';
 import '../models/expense.dart';
+import '../models/spending_chart.dart';
 import '../theme/app_theme.dart';
+import '../widgets/monthly_chart.dart';
 import '../widgets/shapes.dart';
 import 'add_expense_screen.dart';
 import 'profile_screen.dart';
 
-/// Whether payments are imported from SMS on this device.
+/// Whether payments are imported from one source (SMS or app notifications)
+/// on this device.
 enum AutoDetectState {
   /// Not available here (web, iOS, tests).
   unsupported,
 
-  /// Available but the user has not granted SMS access.
+  /// Available but the user has not granted access.
   off,
   on,
 }
@@ -38,9 +41,12 @@ class HomeScreen extends StatefulWidget {
     this.loadError,
     this.onRefresh,
     this.autoDetect = AutoDetectState.unsupported,
+    this.notificationDetect = AutoDetectState.unsupported,
     this.syncing = false,
     this.lastSynced,
     this.onEnableAutoDetect,
+    this.onEnableNotifications,
+    this.monthlyChart,
   });
 
   final AuthSession session;
@@ -59,10 +65,20 @@ class HomeScreen extends StatefulWidget {
   final String? loadError;
   final Future<void> Function()? onRefresh;
 
+  /// Importing from SMS.
   final AutoDetectState autoDetect;
+
+  /// Importing from UPI and bank app notifications.
+  final AutoDetectState notificationDetect;
   final bool syncing;
   final DateTime? lastSynced;
   final Future<void> Function()? onEnableAutoDetect;
+
+  /// Called after the user agrees to the notification access explanation.
+  final Future<void> Function()? onEnableNotifications;
+
+  /// Spending per month of the current year; hidden while `null`.
+  final SpendingChart? monthlyChart;
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -99,6 +115,45 @@ class _HomeScreenState extends State<HomeScreen> {
     if (saved == true && mounted) {
       ScaffoldMessenger.of(context)
           .showSnackBar(const SnackBar(content: Text('Expense saved')));
+    }
+  }
+
+  /// Explains what notification access is used for before sending the user
+  /// to Android settings.
+  Future<void> _enableNotifications() async {
+    final onEnable = widget.onEnableNotifications;
+    if (onEnable == null) {
+      return;
+    }
+    final agreed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        key: const Key('notification-disclosure'),
+        title: const Text('Read payment notifications?'),
+        content: const Text(
+          'Expenses reads notifications from Google Pay, PhonePe, Paytm, BHIM '
+          'and bank apps to record your payments automatically.\n\n'
+          'Notifications from other apps are ignored. Payment notifications '
+          'are read on this phone and only the amount, merchant, app and time '
+          'are saved to your account.\n\n'
+          'On the next screen, turn on access for Expenses. You can turn it '
+          'off at any time in Android settings.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Not now'),
+          ),
+          FilledButton(
+            key: const Key('notification-disclosure-continue'),
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Continue'),
+          ),
+        ],
+      ),
+    );
+    if (agreed == true) {
+      await onEnable();
     }
   }
 
@@ -157,15 +212,26 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
         const SizedBox(height: 20),
         _SummaryCard(period: periodLabel, expenses: period),
-        if (widget.autoDetect != AutoDetectState.unsupported) ...[
+        if (widget.autoDetect != AutoDetectState.unsupported ||
+            widget.notificationDetect != AutoDetectState.unsupported) ...[
           const SizedBox(height: 14),
           _AutoDetectCard(
-            state: widget.autoDetect,
+            sms: widget.autoDetect,
+            notifications: widget.notificationDetect,
             syncing: widget.syncing,
             lastSynced: widget.lastSynced,
-            onEnable: widget.onEnableAutoDetect,
+            onEnableSms: widget.onEnableAutoDetect,
+            onEnableNotifications: widget.onEnableNotifications == null
+                ? null
+                : _enableNotifications,
             onSync: widget.onRefresh,
           ),
+        ],
+        if (widget.monthlyChart case final chart?) ...[
+          const SizedBox(height: 28),
+          _SectionTitle(chart.title.isEmpty ? 'This year' : chart.title),
+          const SizedBox(height: 12),
+          MonthlyChart(chart: chart, highlight: now.month - 1),
         ],
         if (period.any((e) => !e.isCredit)) ...[
           const SizedBox(height: 28),
@@ -462,24 +528,48 @@ class _DarkChip extends StatelessWidget {
 
 class _AutoDetectCard extends StatelessWidget {
   const _AutoDetectCard({
-    required this.state,
+    required this.sms,
+    required this.notifications,
     required this.syncing,
     required this.lastSynced,
-    required this.onEnable,
+    required this.onEnableSms,
+    required this.onEnableNotifications,
     required this.onSync,
   });
 
-  final AutoDetectState state;
+  final AutoDetectState sms;
+  final AutoDetectState notifications;
   final bool syncing;
   final DateTime? lastSynced;
-  final Future<void> Function()? onEnable;
+  final Future<void> Function()? onEnableSms;
+  final Future<void> Function()? onEnableNotifications;
   final Future<void> Function()? onSync;
+
+  bool get _smsOff => sms == AutoDetectState.off;
+  bool get _notificationsOff => notifications == AutoDetectState.off;
+
+  String get _explanation {
+    if (_notificationsOff && _smsOff) {
+      return 'Turn on notification access to record payments from Google '
+          'Pay, PhonePe, Paytm and bank apps, or allow SMS access to read '
+          'bank messages. Everything is read on this phone; only the amount, '
+          'merchant and bank are saved.';
+    }
+    if (_notificationsOff) {
+      return 'Turn on notification access and every payment from Google Pay, '
+          'PhonePe, Paytm or your bank app becomes an expense. Notifications '
+          'are read on this phone; only the amount, merchant and app are saved.';
+    }
+    return 'Allow SMS access and every bank or UPI payment message becomes an '
+        'expense. Messages are read on this phone; only the amount, '
+        'merchant and bank are saved.';
+  }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
-    if (state == AutoDetectState.off) {
+    if (sms != AutoDetectState.on && notifications != AutoDetectState.on) {
       return Container(
         key: const Key('auto-detect-card'),
         padding: const EdgeInsets.all(20),
@@ -513,29 +603,89 @@ class _AutoDetectCard extends StatelessWidget {
             ),
             const SizedBox(height: 10),
             Text(
-              'Allow SMS access and every bank or UPI payment message becomes an '
-              'expense. Messages are read on this phone; only the amount, '
-              'merchant and bank are saved.',
+              _explanation,
               style: theme.textTheme.bodyMedium?.copyWith(
                 color: AppColors.muted,
               ),
             ),
             const SizedBox(height: 16),
-            FilledButton(
-              key: const Key('enable-auto-detect'),
-              onPressed: onEnable,
-              child: const Text('Turn on auto-detect'),
-            ),
+            if (_notificationsOff)
+              FilledButton(
+                key: const Key('enable-notifications'),
+                onPressed: onEnableNotifications,
+                child: const Text('Read payment notifications'),
+              ),
+            if (_notificationsOff && _smsOff)
+              TextButton(
+                key: const Key('enable-auto-detect'),
+                onPressed: onEnableSms,
+                child: const Text('Use SMS instead'),
+              )
+            else if (_smsOff)
+              FilledButton(
+                key: const Key('enable-auto-detect'),
+                onPressed: onEnableSms,
+                child: const Text('Turn on auto-detect'),
+              ),
           ],
         ),
       );
     }
 
+    final watching = [
+      if (sms == AutoDetectState.on) 'bank & UPI messages',
+      if (notifications == AutoDetectState.on) 'payment notifications',
+    ].join(' and ');
     final status = syncing
-        ? 'Checking your messages…'
+        ? 'Checking for new payments…'
         : lastSynced == null
-        ? 'Watching bank & UPI messages'
+        ? 'Watching $watching'
         : 'Last checked ${_ago(lastSynced!)}';
+
+    final row = Row(
+      children: [
+        Container(
+          width: 10,
+          height: 10,
+          decoration: const BoxDecoration(
+            color: AppColors.lime,
+            shape: BoxShape.circle,
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Auto-detect is on', style: theme.textTheme.titleSmall),
+              Text(
+                status,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: AppColors.muted,
+                ),
+              ),
+            ],
+          ),
+        ),
+        if (syncing)
+          const Padding(
+            padding: EdgeInsets.all(12),
+            child: SizedBox(
+              width: 20,
+              height: 20,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+          )
+        else
+          IconButton(
+            key: const Key('sync-button'),
+            onPressed: onSync,
+            tooltip: 'Check for new payments',
+            style: IconButton.styleFrom(backgroundColor: AppColors.surfaceHigh),
+            icon: const Icon(Icons.sync_rounded),
+          ),
+      ],
+    );
 
     return Container(
       key: const Key('auto-detect-card'),
@@ -544,49 +694,21 @@ class _AutoDetectCard extends StatelessWidget {
         color: AppColors.surface,
         borderRadius: BorderRadius.circular(20),
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            width: 10,
-            height: 10,
-            decoration: const BoxDecoration(
-              color: AppColors.lime,
-              shape: BoxShape.circle,
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('Auto-detect is on', style: theme.textTheme.titleSmall),
-                Text(
-                  status,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: AppColors.muted,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          if (syncing)
-            const Padding(
-              padding: EdgeInsets.all(12),
-              child: SizedBox(
-                width: 20,
-                height: 20,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              ),
+          row,
+          if (_notificationsOff)
+            TextButton(
+              key: const Key('enable-notifications'),
+              onPressed: onEnableNotifications,
+              child: const Text('Also read payment notifications'),
             )
-          else
-            IconButton(
-              key: const Key('sync-button'),
-              onPressed: onSync,
-              tooltip: 'Check messages now',
-              style: IconButton.styleFrom(
-                backgroundColor: AppColors.surfaceHigh,
-              ),
-              icon: const Icon(Icons.sync_rounded),
+          else if (_smsOff)
+            TextButton(
+              key: const Key('enable-auto-detect'),
+              onPressed: onEnableSms,
+              child: const Text('Also read bank SMS'),
             ),
         ],
       ),

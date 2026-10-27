@@ -23,6 +23,10 @@ const UnknownCategory = unknownCategory
 
 const backfillBatch = 50
 
+// sameEventWindow is how far apart the SMS and the app notification for one
+// payment can be timestamped.
+const sameEventWindow = 3 * time.Minute
+
 // modelCategories are the answers the model may give: every category except
 // Income, which every credit gets by rule, and Unknown.
 var modelCategories = func() []string {
@@ -210,7 +214,21 @@ func normalizeCategory(answer string) string {
 
 // Create saves the transaction. If the classifier is unreachable the
 // transaction is still saved as Unknown and classified later by Backfill.
+// An auto-detected payment already recorded from another source (the bank
+// SMS and the UPI app notification for the same payment) returns
+// ErrDuplicate.
 func (s *Service) Create(ctx context.Context, tx *models.Transaction) error {
+	if tx.Source != "" && tx.Source != "manual" {
+		dup, err := s.repo.HasMatch(tx.UserID, tx.AmountPaise, tx.Type, tx.Source,
+			tx.OccurredAt.Add(-sameEventWindow), tx.OccurredAt.Add(sameEventWindow))
+		if err != nil {
+			return err
+		}
+		if dup {
+			return ErrDuplicate
+		}
+	}
+
 	category, err := s.categorize(ctx, tx)
 	if err != nil {
 		log.Printf("classify transaction: %v", err)
@@ -272,4 +290,8 @@ func (s *Service) RunBackfill(ctx context.Context, interval time.Duration) {
 		case <-ticker.C:
 		}
 	}
+}
+
+func (s *Service) CreateGroup(userID uuid.UUID, GroupMembers []string, name string) (string, error) {
+	return s.repo.CreateGroup(userID, GroupMembers, name)
 }

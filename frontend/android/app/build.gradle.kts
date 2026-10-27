@@ -29,6 +29,20 @@ android {
         versionName = flutter.versionName
     }
 
+    // play: what goes to Google Play, without SMS access.
+    // full: also reads bank SMS (src/full/AndroidManifest.xml adds the
+    // permissions); for testing and distribution outside Play.
+    flavorDimensions += "store"
+    productFlavors {
+        create("play") {
+            dimension = "store"
+        }
+        create("full") {
+            dimension = "store"
+            applicationIdSuffix = ".full"
+        }
+    }
+
     buildTypes {
         release {
             // TODO: Add your own signing config for the release build.

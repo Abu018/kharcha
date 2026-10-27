@@ -1,9 +1,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET"/>
-    <!-- Reads bank/UPI SMS to record payments automatically. -->
-    <uses-permission android:name="android.permission.READ_SMS"/>
-    <uses-permission android:name="android.permission.RECEIVE_SMS"/>
-    <uses-feature android:name="android.hardware.telephony" android:required="false"/>
+    <!-- SMS permissions live in src/full/AndroidManifest.xml; the play
+         flavor leaves them out and the app hides SMS import. -->
     <application
         android:label="my_app"
         android:name="${applicationName}"
@@ -30,6 +28,17 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
+        <!-- Reads payment notifications from UPI and bank apps once the user
+             grants notification access in Android settings. -->
+        <service
+            android:name=".PaymentNotificationListener"
+            android:label="Payment detection"
+            android:exported="false"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService"/>
+            </intent-filter>
+        </service>
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data

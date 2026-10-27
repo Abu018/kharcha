@@ -43,8 +43,11 @@ func RegisterExpenseRoutes(
 			p.Use(middleware.Auth(kc, cfg.Keycloak))
 			p.Get("/profile", profileHandler.GetProfile)
 			p.Put("/profile", profileHandler.UpdateProfile)
+			p.Get("/users", profileHandler.ListUsers)
 			p.Post("/expense", expenseHandler.Expense)
 			p.Get("/expenses", expenseHandler.List)
+			p.Get("/expenses/monthly", expenseHandler.Monthly)
+			p.Post("/create-group", expenseHandler.CreateGroup)
 		})
 	})
 }

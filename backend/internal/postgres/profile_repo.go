@@ -6,10 +6,27 @@ import (
 	"fmt"
 	"my_app/backend/internal/models"
 	"my_app/backend/internal/profile"
+	"strings"
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
+
+var likeEscaper = strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
+
+func (r *UserRepo) ListUsers(ctx context.Context, exclude uuid.UUID, query string, limit int) ([]models.User, error) {
+	q := r.db.WithContext(ctx).Where("id <> ?", exclude)
+	if query != "" {
+		pattern := "%" + likeEscaper.Replace(query) + "%"
+		q = q.Where(
+			"first_name ILIKE ? OR last_name ILIKE ? OR email ILIKE ? OR (first_name || ' ' || last_name) ILIKE ?",
+			pattern, pattern, pattern, pattern,
+		)
+	}
+	var users []models.User
+	err := q.Order("lower(first_name), lower(last_name), email").Limit(limit).Find(&users).Error
+	return users, err
+}
 
 func (r *UserRepo) GetProfile(ctx context.Context, userID uuid.UUID) (models.User, error) {
 	var user models.User

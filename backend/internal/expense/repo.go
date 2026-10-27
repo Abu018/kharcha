@@ -17,7 +17,16 @@ type Repo interface {
 	// List returns transactions newest first, with occurred_at in
 	// [from, to). A zero from or to leaves that side unbounded.
 	List(userID uuid.UUID, limit int, from, to time.Time) ([]models.Transaction, error)
+	// HasMatch reports whether the user has an auto-detected transaction
+	// with this amount and type, occurred_at in [from, to], that came from a
+	// source other than source. Manual entries never match.
+	HasMatch(userID uuid.UUID, amountPaise int64, txType, source string, from, to time.Time) (bool, error)
 	// Uncategorized returns transactions still waiting for a category.
 	Uncategorized(limit int) ([]models.Transaction, error)
 	SetCategory(id uuid.UUID, category string) error
+	// MonthlySpent returns the user's debits per month of year, Jan to Dec,
+	// with Y 0 for months without payments.
+	MonthlySpent(userID uuid.UUID, year int) ([]Series, error)
+	HighestSpendingAmount(userID uuid.UUID, year int) (int64, error)
+	CreateGroup(userID uuid.UUID, GroupMembers []string, GroupName string) (string, error)
 }

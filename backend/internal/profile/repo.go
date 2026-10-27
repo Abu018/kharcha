@@ -22,4 +22,7 @@ type Update struct {
 type Repo interface {
 	GetProfile(ctx context.Context, userID uuid.UUID) (models.User, error)
 	UpdateProfile(ctx context.Context, userID uuid.UUID, u Update) (models.User, error)
+	// ListUsers returns up to limit users other than exclude, ordered by
+	// name. A non-empty query keeps users whose name or email contains it.
+	ListUsers(ctx context.Context, exclude uuid.UUID, query string, limit int) ([]models.User, error)
 }

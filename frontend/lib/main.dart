@@ -5,11 +5,17 @@ import 'package:flutter/material.dart';
 import 'api/auth_api.dart';
 import 'api/expense_api.dart';
 import 'api/profile_api.dart';
+import 'models/app_user.dart';
 import 'models/auth_session.dart';
 import 'models/expense.dart';
+import 'models/expense_group.dart';
+import 'models/spending_chart.dart';
+import 'screens/app_shell.dart';
+import 'screens/groups_screen.dart';
 import 'screens/home_screen.dart';
 import 'screens/login_screen.dart';
 import 'services/auto_detect.dart';
+import 'services/notification_source.dart';
 import 'services/session_store.dart';
 import 'services/sms_source.dart';
 import 'theme/app_theme.dart';
@@ -25,6 +31,7 @@ class MyApp extends StatefulWidget {
     this.profileApi,
     this.expenseApi,
     this.smsSource,
+    this.notificationSource,
     this.sessionStore,
   });
 
@@ -32,6 +39,7 @@ class MyApp extends StatefulWidget {
   final ProfileApi? profileApi;
   final ExpenseApi? expenseApi;
   final SmsSource? smsSource;
+  final NotificationSource? notificationSource;
   final SessionStore? sessionStore;
 
   @override
@@ -47,7 +55,13 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
   late final ProfileApi _profileApi = widget.profileApi ?? ProfileApi();
   late final ExpenseApi _expenseApi = widget.expenseApi ?? ExpenseApi();
   late final SmsSource _sms = widget.smsSource ?? SmsSource();
-  late final AutoDetector _detector = AutoDetector(sms: _sms, api: _expenseApi);
+  late final NotificationSource _notifications =
+      widget.notificationSource ?? NotificationSource();
+  late final AutoDetector _detector = AutoDetector(
+    sms: _sms,
+    notifications: _notifications,
+    api: _expenseApi,
+  );
   late final SessionStore _store = widget.sessionStore ?? SessionStore();
 
   AuthSession? _session;
@@ -57,6 +71,10 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
   Future<AuthSession?>? _renewing;
 
   List<Expense> _expenses = const [];
+  SpendingChart? _monthlyChart;
+
+  /// Groups created since signing in, newest first.
+  List<ExpenseGroup> _groups = const [];
 
   /// Days shown on the home screen, both inclusive; `null` shows everything.
   DateTimeRange? _range;
@@ -64,9 +82,16 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
   String? _loadError;
 
   AutoDetectState _autoDetect = AutoDetectState.unsupported;
+  AutoDetectState _notificationDetect = AutoDetectState.unsupported;
   bool _syncing = false;
+  bool _syncAgain = false;
   DateTime? _lastSynced;
   StreamSubscription<SmsMessageData>? _incoming;
+  StreamSubscription<PaymentNotification>? _incomingNotifications;
+
+  bool get _detecting =>
+      _autoDetect == AutoDetectState.on ||
+      _notificationDetect == AutoDetectState.on;
 
   @override
   void initState() {
@@ -79,13 +104,20 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _incoming?.cancel();
+    _incomingNotifications?.cancel();
     super.dispose();
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed &&
-        _autoDetect == AutoDetectState.on) {
+    if (state != AppLifecycleState.resumed || _session == null) {
+      return;
+    }
+    // Notification access is granted in Android settings, so the only way
+    // to learn about it is to check again when the user comes back.
+    if (_notificationDetect == AutoDetectState.off) {
+      unawaited(_checkNotificationAccess());
+    } else if (_detecting) {
       _sync();
     }
   }
@@ -150,22 +182,44 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
 
   void _startSession() {
     unawaited(_loadExpenses());
+    unawaited(_loadChart());
     unawaited(_initAutoDetect());
+  }
+
+  /// Reloads spending per month of the current year. Failures keep the chart
+  /// that is already shown; the list's own error message covers being offline.
+  Future<void> _loadChart() async {
+    try {
+      final chart = await _authed(
+        (token) => _expenseApi.monthlySpending(accessToken: token),
+      );
+      if (mounted && chart != null && _session != null) {
+        setState(() => _monthlyChart = chart);
+      }
+    } on ApiException {
+      // Shown again on the next refresh.
+    }
   }
 
   void _signOut({String? notice}) {
     _navigatorKey.currentState?.popUntil((route) => route.isFirst);
     _incoming?.cancel();
     _incoming = null;
+    _incomingNotifications?.cancel();
+    _incomingNotifications = null;
     unawaited(_store.clear());
     setState(() {
       _session = null;
       _loginNotice = notice;
       _expenses = const [];
+      _monthlyChart = null;
+      _groups = const [];
       _range = null;
       _loadError = null;
       _autoDetect = AutoDetectState.unsupported;
+      _notificationDetect = AutoDetectState.unsupported;
       _syncing = false;
+      _syncAgain = false;
       _lastSynced = null;
     });
   }
@@ -302,7 +356,18 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
   }
 
   Future<void> _initAutoDetect() async {
-    if (!_sms.isSupported) {
+    if (_notifications.isSupported) {
+      final access = await _notifications.hasAccess();
+      if (!mounted || _session == null) {
+        return;
+      }
+      if (access) {
+        _startNotificationDetect();
+      } else {
+        setState(() => _notificationDetect = AutoDetectState.off);
+      }
+    }
+    if (!_sms.isSupported || !await _sms.isDeclared()) {
       return;
     }
     final granted = await _sms.hasPermission();
@@ -340,14 +405,47 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     _sync();
   }
 
-  Future<void> _onIncomingSms(SmsMessageData message) async {
+  /// Sends the user to Android settings; [didChangeAppLifecycleState] picks
+  /// up the result when they return.
+  Future<void> _enableNotifications() => _notifications.openSettings();
+
+  Future<void> _checkNotificationAccess() async {
+    final access = await _notifications.hasAccess();
+    if (!mounted || _session == null) {
+      return;
+    }
+    if (access) {
+      _startNotificationDetect();
+    } else if (_detecting) {
+      _sync();
+    }
+  }
+
+  void _startNotificationDetect() {
+    setState(() => _notificationDetect = AutoDetectState.on);
+    _incomingNotifications ??= _notifications.incoming().listen(
+      (notification) => _onIncoming(
+        (token) => _detector.handleIncomingNotification(
+          accessToken: token,
+          notification: notification,
+        ),
+      ),
+      onError: (_) {},
+    );
+    _sync();
+  }
+
+  Future<void> _onIncomingSms(SmsMessageData message) => _onIncoming(
+    (token) => _detector.handleIncoming(accessToken: token, message: message),
+  );
+
+  /// Saves a payment that just arrived and announces it.
+  Future<void> _onIncoming(Future<Expense?> Function(String token) save) async {
     try {
-      final saved = await _authed(
-        (token) =>
-            _detector.handleIncoming(accessToken: token, message: message),
-      );
+      final saved = await _authed(save);
       if (saved != null && mounted) {
         setState(() => _merge([saved]));
+        unawaited(_loadChart());
         _messengerKey.currentState?.showSnackBar(
           SnackBar(
             content: Text(
@@ -358,18 +456,30 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
         );
       }
     } on ApiException {
-      // Picked up by the next inbox sync.
+      // Picked up by the next sync.
     }
   }
 
+  /// Imports new payments from every source that is on. A call made while a
+  /// sync is running (e.g. a second source was just turned on) runs another
+  /// sync once the current one finishes.
   Future<void> _sync() async {
-    if (_syncing || _autoDetect != AutoDetectState.on || _session == null) {
+    if (!_detecting || _session == null) {
+      return;
+    }
+    if (_syncing) {
+      _syncAgain = true;
       return;
     }
     setState(() => _syncing = true);
     try {
       final saved = await _authed(
-        (token) => _detector.sync(accessToken: token, userKey: _userKey),
+        (token) async => [
+          if (_autoDetect == AutoDetectState.on)
+            ...await _detector.sync(accessToken: token, userKey: _userKey),
+          if (_notificationDetect == AutoDetectState.on)
+            ...await _detector.syncNotifications(accessToken: token),
+        ],
       );
       if (!mounted || saved == null) {
         return;
@@ -379,11 +489,12 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
         _lastSynced = DateTime.now();
       });
       if (saved.isNotEmpty) {
+        unawaited(_loadChart());
         _messengerKey.currentState?.showSnackBar(
           SnackBar(
             content: Text(
               'Added ${saved.length} payment${saved.length == 1 ? '' : 's'} '
-              'from your messages',
+              'automatically',
             ),
           ),
         );
@@ -392,7 +503,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
       if (mounted && _session != null) {
         _messengerKey.currentState?.showSnackBar(
           SnackBar(
-            content: Text('Could not import messages: ${error.message}'),
+            content: Text('Could not import payments: ${error.message}'),
           ),
         );
       }
@@ -400,11 +511,15 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
       if (mounted) {
         setState(() => _syncing = false);
       }
+      if (_syncAgain) {
+        _syncAgain = false;
+        unawaited(_sync());
+      }
     }
   }
 
   Future<void> _refresh() async {
-    await Future.wait([_loadExpenses(), _sync()]);
+    await Future.wait([_loadExpenses(), _loadChart(), _sync()]);
   }
 
   Future<void> _addExpense(ExpenseInput input) async {
@@ -413,7 +528,28 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     );
     if (saved != null) {
       setState(() => _merge([saved]));
+      unawaited(_loadChart());
     }
+  }
+
+  Future<void> _createGroup(String name, List<AppUser> members) async {
+    final group = await _authed(
+      (token) => _expenseApi.createGroup(
+        accessToken: token,
+        name: name,
+        members: members,
+      ),
+    );
+    if (group != null && mounted) {
+      setState(() => _groups = [group, ..._groups]);
+    }
+  }
+
+  Future<List<AppUser>> _searchUsers(String query) async {
+    final users = await _authed(
+      (token) => _profileApi.listUsers(accessToken: token, query: query),
+    );
+    return users ?? const [];
   }
 
   Future<Profile?> _loadProfile() {
@@ -460,22 +596,32 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
               notice: _loginNotice,
               initialEmail: _lastEmail,
             )
-          : HomeScreen(
-              session: session,
-              onSignOut: _signOut,
-              onLoadProfile: _loadProfile,
-              onUpdateProfile: _updateProfile,
-              onAddExpense: _addExpense,
-              expenses: _expenses,
-              dateRange: _range,
-              onDateRangeChanged: _setRange,
-              loading: _loadingExpenses,
-              loadError: _loadError,
-              onRefresh: _refresh,
-              autoDetect: _autoDetect,
-              syncing: _syncing,
-              lastSynced: _lastSynced,
-              onEnableAutoDetect: _enableAutoDetect,
+          : AppShell(
+              home: HomeScreen(
+                session: session,
+                onSignOut: _signOut,
+                onLoadProfile: _loadProfile,
+                onUpdateProfile: _updateProfile,
+                onAddExpense: _addExpense,
+                expenses: _expenses,
+                dateRange: _range,
+                onDateRangeChanged: _setRange,
+                loading: _loadingExpenses,
+                loadError: _loadError,
+                onRefresh: _refresh,
+                autoDetect: _autoDetect,
+                notificationDetect: _notificationDetect,
+                syncing: _syncing,
+                lastSynced: _lastSynced,
+                onEnableAutoDetect: _enableAutoDetect,
+                onEnableNotifications: _enableNotifications,
+                monthlyChart: _monthlyChart,
+              ),
+              groups: GroupsScreen(
+                groups: _groups,
+                onCreateGroup: _createGroup,
+                onSearchUsers: _searchUsers,
+              ),
             ),
     );
   }
