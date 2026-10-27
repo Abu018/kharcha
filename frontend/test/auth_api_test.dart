@@ -218,8 +218,7 @@ void main() {
 
       final updated = await api.updateProfile(
         accessToken: 'token-123',
-        firstName: 'Ada',
-        lastName: 'King',
+        profile: const Profile(firstName: 'Ada', lastName: 'King'),
       );
 
       expect(captured.method, 'PUT');
@@ -233,6 +232,41 @@ void main() {
       expect(updated.lastName, 'King');
     });
 
+    test('sends age and salary when they are set', () async {
+      late http.Request captured;
+      final api = ProfileApi(
+        baseUrl: 'http://example.test',
+        client: MockClient((request) async {
+          captured = request;
+          return envelope(200, 'profile updated', {
+            'first_name': 'Ada',
+            'last_name': 'King',
+            'age': 36,
+            'salary': 85000,
+          });
+        }),
+      );
+
+      final updated = await api.updateProfile(
+        accessToken: 'token-123',
+        profile: const Profile(
+          firstName: 'Ada',
+          lastName: 'King',
+          age: 36,
+          salaryRupees: 85000,
+        ),
+      );
+
+      expect(jsonDecode(captured.body), {
+        'first_name': 'Ada',
+        'last_name': 'King',
+        'age': 36,
+        'salary': 85000,
+      });
+      expect(updated.age, 36);
+      expect(updated.salaryRupees, 85000);
+    });
+
     test('flags an expired token as unauthorized', () async {
       final api = ProfileApi(
         baseUrl: 'http://example.test',
@@ -242,8 +276,7 @@ void main() {
       expect(
         () => api.updateProfile(
           accessToken: 'expired',
-          firstName: 'Ada',
-          lastName: 'King',
+          profile: const Profile(firstName: 'Ada', lastName: 'King'),
         ),
         throwsA(
           isA<ApiException>().having(
@@ -253,6 +286,33 @@ void main() {
           ),
         ),
       );
+    });
+  });
+
+  group('ProfileApi.getProfile', () {
+    test('reads the saved profile, with age and salary unset', () async {
+      late http.Request captured;
+      final api = ProfileApi(
+        baseUrl: 'http://example.test',
+        client: MockClient((request) async {
+          captured = request;
+          return envelope(200, 'profile', {
+            'first_name': 'Ada',
+            'last_name': 'Lovelace',
+            'age': null,
+            'salary': null,
+          });
+        }),
+      );
+
+      final profile = await api.getProfile(accessToken: 'token-123');
+
+      expect(captured.method, 'GET');
+      expect(captured.url.toString(), 'http://example.test/api/v1/profile');
+      expect(captured.headers['Authorization'], 'Bearer token-123');
+      expect(profile.firstName, 'Ada');
+      expect(profile.age, isNull);
+      expect(profile.salaryRupees, isNull);
     });
   });
 
@@ -412,6 +472,30 @@ void main() {
             true,
           ),
         ),
+      );
+    });
+  });
+
+  group('ExpenseApi.listExpenses', () {
+    test('sends the date range as inclusive YYYY-MM-DD days', () async {
+      late http.Request captured;
+      final api = ExpenseApi(
+        baseUrl: 'http://example.test',
+        client: MockClient((request) async {
+          captured = request;
+          return envelope(200, 'ok', []);
+        }),
+      );
+
+      await api.listExpenses(
+        accessToken: 't',
+        startDate: DateTime(2026, 10, 1),
+        endDate: DateTime(2026, 10, 31, 23, 59),
+      );
+
+      expect(
+        captured.url.toString(),
+        'http://example.test/api/v1/expenses?limit=200&start_date=2026-10-01&end_date=2026-10-31',
       );
     });
   });

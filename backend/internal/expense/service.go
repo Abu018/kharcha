@@ -220,8 +220,8 @@ func (s *Service) Create(ctx context.Context, tx *models.Transaction) error {
 	return s.repo.Create(tx)
 }
 
-func (s *Service) List(userID uuid.UUID, limit int) ([]models.Transaction, error) {
-	return s.repo.List(userID, limit)
+func (s *Service) List(userID uuid.UUID, limit int, from, to time.Time) ([]models.Transaction, error) {
+	return s.repo.List(userID, limit, from, to)
 }
 
 // Backfill classifies Unknown transactions. It stops at the first model

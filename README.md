@@ -192,9 +192,10 @@ All routes live under `/api/v1`. Routes marked 🔒 need
 | `POST` | `/api/v1/register` | Create an account |
 | `POST` | `/api/v1/login` | Get an access token and an offline refresh token |
 | `POST` | `/api/v1/auth/refresh` | Swap a refresh token for new tokens |
-| `PUT` | `/api/v1/profile` 🔒 | Update first and last name |
+| `GET` | `/api/v1/profile` 🔒 | Read name, email, age and monthly salary |
+| `PUT` | `/api/v1/profile` 🔒 | Update name, age and monthly salary; omitted fields are left unchanged |
 | `POST` | `/api/v1/expense` 🔒 | Save a transaction; categorised automatically. Returns 200 with no data if `source_ref` was already saved |
-| `GET` | `/api/v1/expenses` 🔒 | List your transactions, newest first (`?limit=`, max 500) |
+| `GET` | `/api/v1/expenses` 🔒 | List your transactions, newest first (`?limit=`, max 500; optional `?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD`, both inclusive) |
 
 ```sh
 curl -X POST "$API_URL/api/v1/login" \

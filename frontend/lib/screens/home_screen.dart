@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../api/profile_api.dart';
 import '../models/auth_session.dart';
 import '../models/expense.dart';
 import '../theme/app_theme.dart';
@@ -28,8 +29,11 @@ class HomeScreen extends StatefulWidget {
     required this.session,
     required this.onSignOut,
     required this.onUpdateProfile,
+    this.onLoadProfile,
     required this.onAddExpense,
     this.expenses = const [],
+    this.dateRange,
+    this.onDateRangeChanged,
     this.loading = false,
     this.loadError,
     this.onRefresh,
@@ -41,12 +45,16 @@ class HomeScreen extends StatefulWidget {
 
   final AuthSession session;
   final VoidCallback onSignOut;
-  final Future<void> Function(String firstName, String lastName)
-  onUpdateProfile;
+  final Future<void> Function(Profile profile) onUpdateProfile;
+  final Future<Profile?> Function()? onLoadProfile;
   final Future<void> Function(ExpenseInput input) onAddExpense;
 
-  /// Newest first.
+  /// Newest first; already limited to [dateRange] when one is set.
   final List<Expense> expenses;
+
+  /// Days being shown, both inclusive; `null` means the latest payments.
+  final DateTimeRange? dateRange;
+  final ValueChanged<DateTimeRange?>? onDateRangeChanged;
   final bool loading;
   final String? loadError;
   final Future<void> Function()? onRefresh;
@@ -71,6 +79,7 @@ class _HomeScreenState extends State<HomeScreen> {
         builder: (_) => ProfileScreen(
           initialFirstName: widget.session.firstName,
           initialLastName: widget.session.lastName,
+          onLoad: widget.onLoadProfile,
           onSubmit: widget.onUpdateProfile,
         ),
       ),
@@ -93,6 +102,27 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  Future<void> _pickDateRange() async {
+    final onChanged = widget.onDateRangeChanged;
+    if (onChanged == null) {
+      return;
+    }
+    final today = DateUtils.dateOnly(DateTime.now());
+    final picked = await showDateRangePicker(
+      context: context,
+      firstDate: DateTime(today.year - 5),
+      lastDate: today,
+      initialDateRange:
+          widget.dateRange ??
+          DateTimeRange(start: DateTime(today.year, today.month), end: today),
+      helpText: 'Show payments between',
+      saveText: 'Show',
+    );
+    if (picked != null) {
+      onChanged(picked);
+    }
+  }
+
   List<Expense> get _visible => switch (_filter) {
     _Filter.all => widget.expenses,
     _Filter.spent => widget.expenses.where((e) => !e.isCredit).toList(),
@@ -102,10 +132,18 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     final now = DateTime.now();
-    final thisMonth = widget.expenses.where((e) {
-      final when = e.when;
-      return when != null && when.year == now.year && when.month == now.month;
-    }).toList();
+    final range = widget.dateRange;
+    final period = range != null
+        ? widget.expenses
+        : widget.expenses.where((e) {
+            final when = e.when;
+            return when != null &&
+                when.year == now.year &&
+                when.month == now.month;
+          }).toList();
+    final periodLabel = range != null
+        ? formatDateRange(range)
+        : 'in ${_months[now.month - 1]}';
     final visible = _visible;
 
     final content = ListView(
@@ -118,7 +156,7 @@ class _HomeScreenState extends State<HomeScreen> {
           onSignOut: widget.onSignOut,
         ),
         const SizedBox(height: 20),
-        _SummaryCard(month: _months[now.month - 1], expenses: thisMonth),
+        _SummaryCard(period: periodLabel, expenses: period),
         if (widget.autoDetect != AutoDetectState.unsupported) ...[
           const SizedBox(height: 14),
           _AutoDetectCard(
@@ -129,11 +167,11 @@ class _HomeScreenState extends State<HomeScreen> {
             onSync: widget.onRefresh,
           ),
         ],
-        if (thisMonth.any((e) => !e.isCredit)) ...[
+        if (period.any((e) => !e.isCredit)) ...[
           const SizedBox(height: 28),
           const _SectionTitle('Where it went'),
           const SizedBox(height: 12),
-          _CategoryBreakdown(expenses: thisMonth),
+          _CategoryBreakdown(expenses: period),
         ],
         const SizedBox(height: 28),
         const _SectionTitle('Activity'),
@@ -153,6 +191,23 @@ class _HomeScreenState extends State<HomeScreen> {
                 selected: _filter == filter,
                 onTap: () => setState(() => _filter = filter),
               ),
+            if (widget.onDateRangeChanged != null) ...[
+              _Pill(
+                key: const Key('date-range-button'),
+                icon: Icons.calendar_today_rounded,
+                label: range == null ? 'Any date' : formatDateRange(range),
+                selected: range != null,
+                onTap: _pickDateRange,
+              ),
+              if (range != null)
+                _Pill(
+                  key: const Key('date-range-clear'),
+                  icon: Icons.close_rounded,
+                  label: 'Clear',
+                  selected: false,
+                  onTap: () => widget.onDateRangeChanged!(null),
+                ),
+            ],
           ],
         ),
         const SizedBox(height: 14),
@@ -171,7 +226,9 @@ class _HomeScreenState extends State<HomeScreen> {
           _Message(
             key: const Key('expenses-empty'),
             icon: Icons.receipt_long_rounded,
-            text: widget.expenses.isEmpty
+            text: range != null && widget.expenses.isEmpty
+                ? 'No payments between ${formatDateRange(range)}.'
+                : widget.expenses.isEmpty
                 ? 'No expenses yet. Tap "Add expense" or turn on auto-detect.'
                 : 'Nothing here for this filter.',
           )
@@ -285,9 +342,10 @@ class _Header extends StatelessWidget {
 }
 
 class _SummaryCard extends StatelessWidget {
-  const _SummaryCard({required this.month, required this.expenses});
+  const _SummaryCard({required this.period, required this.expenses});
 
-  final String month;
+  /// Follows "Spent", e.g. `in October` or `1 Oct – 15 Oct`.
+  final String period;
   final List<Expense> expenses;
 
   @override
@@ -328,7 +386,8 @@ class _SummaryCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Spent in $month',
+                  'Spent $period',
+                  key: const Key('summary-period'),
                   style: const TextStyle(
                     color: AppColors.ink,
                     fontWeight: FontWeight.w600,
@@ -755,33 +814,60 @@ class _Pill extends StatelessWidget {
     required this.label,
     required this.selected,
     required this.onTap,
+    this.icon,
   });
 
   final String label;
   final bool selected;
   final VoidCallback onTap;
+  final IconData? icon;
 
   @override
-  Widget build(BuildContext context) => Material(
-    color: selected ? AppColors.lime : AppColors.surface,
-    shape: StadiumBorder(
-      side: BorderSide(color: selected ? AppColors.lime : AppColors.outline),
-    ),
-    child: InkWell(
-      customBorder: const StadiumBorder(),
-      onTap: onTap,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 9),
-        child: Text(
-          label,
-          style: TextStyle(
-            color: selected ? AppColors.ink : Colors.white,
-            fontWeight: FontWeight.w600,
+  Widget build(BuildContext context) {
+    final color = selected ? AppColors.ink : Colors.white;
+    return Material(
+      color: selected ? AppColors.lime : AppColors.surface,
+      shape: StadiumBorder(
+        side: BorderSide(color: selected ? AppColors.lime : AppColors.outline),
+      ),
+      child: InkWell(
+        customBorder: const StadiumBorder(),
+        onTap: onTap,
+        child: Padding(
+          padding: EdgeInsets.fromLTRB(icon == null ? 18 : 14, 9, 18, 9),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (icon != null) ...[
+                Icon(icon, size: 15, color: color),
+                const SizedBox(width: 6),
+              ],
+              Text(
+                label,
+                style: TextStyle(color: color, fontWeight: FontWeight.w600),
+              ),
+            ],
           ),
         ),
       ),
-    ),
-  );
+    );
+  }
+}
+
+const _shortMonths = [
+  'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', //
+  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+];
+
+/// `5 Oct` for a single day, `1 Oct – 15 Oct` for a range, with the year
+/// added when it is not the current one.
+String formatDateRange(DateTimeRange range, {DateTime? now}) {
+  final year = (now ?? DateTime.now()).year;
+  String day(DateTime d) =>
+      '${d.day} ${_shortMonths[d.month - 1]}${d.year == year ? '' : ' ${d.year}'}';
+  return DateUtils.isSameDay(range.start, range.end)
+      ? day(range.start)
+      : '${day(range.start)} – ${day(range.end)}';
 }
 
 class _SectionTitle extends StatelessWidget {

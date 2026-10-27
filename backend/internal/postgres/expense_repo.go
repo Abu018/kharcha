@@ -3,6 +3,7 @@ package postgres
 import (
 	"my_app/backend/internal/expense"
 	"my_app/backend/internal/models"
+	"time"
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"
@@ -28,10 +29,16 @@ func (r *ExpenseRepo) Create(tx *models.Transaction) error {
 	return nil
 }
 
-func (r *ExpenseRepo) List(userID uuid.UUID, limit int) ([]models.Transaction, error) {
+func (r *ExpenseRepo) List(userID uuid.UUID, limit int, from, to time.Time) ([]models.Transaction, error) {
+	q := r.db.Where("user_id = ?", userID)
+	if !from.IsZero() {
+		q = q.Where("occurred_at >= ?", from)
+	}
+	if !to.IsZero() {
+		q = q.Where("occurred_at < ?", to)
+	}
 	var txs []models.Transaction
-	err := r.db.
-		Where("user_id = ?", userID).
+	err := q.
 		Order("occurred_at DESC, created_at DESC").
 		Limit(limit).
 		Find(&txs).Error

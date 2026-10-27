@@ -6,6 +6,7 @@ import (
 	"my_app/backend/internal/expense"
 	"my_app/backend/internal/handler"
 	"my_app/backend/internal/postgres"
+	"my_app/backend/internal/profile"
 	"my_app/backend/internal/register"
 	"my_app/backend/internal/utils"
 	"time"
@@ -27,6 +28,7 @@ func RegisterExpenseRoutes(
 	expenseService := expense.NewService(expenseRepo, cfg.Classifier)
 	expenseHandler := handler.NewExpenseHandler(expenseService)
 	go expenseService.RunBackfill(context.Background(), time.Minute)
+	profileHandler := handler.NewProfileHandler(profile.NewService(repo))
 
 	kc := gocloak.NewClient(cfg.Keycloak.URL)
 
@@ -39,7 +41,8 @@ func RegisterExpenseRoutes(
 		// Protected routes
 		api.Group(func(p chi.Router) {
 			p.Use(middleware.Auth(kc, cfg.Keycloak))
-			p.Put("/profile", handler.UpdateProfile)
+			p.Get("/profile", profileHandler.GetProfile)
+			p.Put("/profile", profileHandler.UpdateProfile)
 			p.Post("/expense", expenseHandler.Expense)
 			p.Get("/expenses", expenseHandler.List)
 		})

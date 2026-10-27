@@ -19,7 +19,32 @@ import (
 const (
 	defaultListLimit = 100
 	maxListLimit     = 500
+	dateLayout       = "2006-01-02"
 )
+
+// Dates in list filters are calendar days in India, so a payment at 1 AM on
+// the 1st belongs to the 1st and not to the previous day in UTC.
+var indiaTime = time.FixedZone("IST", 5*60*60+30*60)
+
+// parseDateRange turns optional YYYY-MM-DD start and end dates (both
+// inclusive) into a [from, to) range. Missing dates give zero times.
+func parseDateRange(start, end string) (from, to time.Time, err error) {
+	if start != "" {
+		if from, err = time.ParseInLocation(dateLayout, start, indiaTime); err != nil {
+			return from, to, errors.New("start_date must be a date like 2026-10-01")
+		}
+	}
+	if end != "" {
+		if to, err = time.ParseInLocation(dateLayout, end, indiaTime); err != nil {
+			return from, to, errors.New("end_date must be a date like 2026-10-31")
+		}
+		to = to.AddDate(0, 0, 1)
+	}
+	if !from.IsZero() && !to.IsZero() && !from.Before(to) {
+		return from, to, errors.New("start_date must be on or before end_date")
+	}
+	return from, to, nil
+}
 
 type ExpenseHandler struct {
 	expense *expense.Service
@@ -109,10 +134,19 @@ func (h *ExpenseHandler) Expense(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// List returns the user's transactions, newest first.
+// List returns the user's transactions, newest first. Optional
+// ?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD limit them to those days.
 func (h *ExpenseHandler) List(w http.ResponseWriter, r *http.Request) {
 	userID, ok := userIDFrom(w, r)
 	if !ok {
+		return
+	}
+	from, to, err := parseDateRange(r.URL.Query().Get("start_date"), r.URL.Query().Get("end_date"))
+	if err != nil {
+		response.JSON(w, http.StatusBadRequest, response.Response{
+			Success: false,
+			Message: err.Error(),
+		})
 		return
 	}
 
@@ -129,7 +163,7 @@ func (h *ExpenseHandler) List(w http.ResponseWriter, r *http.Request) {
 		limit = min(n, maxListLimit)
 	}
 
-	txs, err := h.expense.List(userID, limit)
+	txs, err := h.expense.List(userID, limit, from, to)
 	if err != nil {
 		log.Printf("list transactions: %v", err)
 		response.JSON(w, http.StatusInternalServerError, response.Response{

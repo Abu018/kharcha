@@ -35,14 +35,24 @@ class ExpenseApi {
     throw const ApiException('Save response did not include the expense.');
   }
 
-  /// `GET /api/v1/expenses`, newest first.
+  /// `GET /api/v1/expenses`, newest first. [startDate] and [endDate] are
+  /// inclusive calendar days; leave them out for no bound.
   Future<List<Expense>> listExpenses({
     required String accessToken,
     int limit = 200,
+    DateTime? startDate,
+    DateTime? endDate,
   }) async {
+    final query = Uri(
+      queryParameters: {
+        'limit': '$limit',
+        if (startDate != null) 'start_date': _day(startDate),
+        if (endDate != null) 'end_date': _day(endDate),
+      },
+    ).query;
     final envelope = await _api.send(
       'GET',
-      '/api/v1/expenses?limit=$limit',
+      '/api/v1/expenses?$query',
       accessToken: accessToken,
     );
     final data = envelope['data'];
@@ -55,3 +65,8 @@ class ExpenseApi {
     ];
   }
 }
+
+String _day(DateTime d) =>
+    '${d.year.toString().padLeft(4, '0')}-'
+    '${d.month.toString().padLeft(2, '0')}-'
+    '${d.day.toString().padLeft(2, '0')}';

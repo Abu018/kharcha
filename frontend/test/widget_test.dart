@@ -8,6 +8,7 @@ import 'package:my_app/api/profile_api.dart';
 import 'package:my_app/main.dart';
 import 'package:my_app/models/auth_session.dart';
 import 'package:my_app/models/expense.dart';
+import 'package:my_app/screens/home_screen.dart';
 import 'package:my_app/services/session_store.dart';
 import 'package:my_app/services/sms_source.dart';
 
@@ -234,12 +235,12 @@ void main() {
             'refresh-2',
           ),
         ),
-        profileApi: _FakeProfileApi((token, first, last) {
+        profileApi: _FakeProfileApi((token, profile) {
           sentTokens.add(token);
           if (token == 'token') {
             throw const ApiException('invalid token', statusCode: 401);
           }
-          return ProfileUpdate(firstName: first, lastName: last);
+          return profile;
         }),
       ),
     );
@@ -357,9 +358,9 @@ void main() {
       tester,
       _app(
         authApi: _FakeAuthApi(onLogin: () => _session),
-        profileApi: _FakeProfileApi((token, first, last) {
+        profileApi: _FakeProfileApi((token, profile) {
           sentToken = token;
-          return ProfileUpdate(firstName: first, lastName: last);
+          return profile;
         }),
       ),
     );
@@ -380,6 +381,72 @@ void main() {
     expect(find.text('Profile updated'), findsOneWidget);
   });
 
+  testWidgets('the profile screen shows and saves age and salary', (
+    tester,
+  ) async {
+    Profile? sent;
+    await _pump(
+      tester,
+      _app(
+        authApi: _FakeAuthApi(onLogin: () => _session),
+        profileApi: _FakeProfileApi(
+          (_, profile) => sent = profile,
+          saved: const Profile(
+            firstName: 'Ada',
+            lastName: 'Lovelace',
+            age: 36,
+            salaryRupees: 85000,
+          ),
+        ),
+      ),
+    );
+
+    await _signIn(tester);
+    await tester.tap(find.byKey(const Key('edit-profile-button')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('36'), findsOneWidget);
+    expect(find.text('85000'), findsOneWidget);
+
+    await tester.enterText(find.byKey(const Key('profile-age-field')), '37');
+    await tester.enterText(
+      find.byKey(const Key('profile-salary-field')),
+      '90000',
+    );
+    await tester.tap(find.byKey(const Key('profile-save-button')));
+    await tester.pumpAndSettle();
+
+    expect(sent?.age, 37);
+    expect(sent?.salaryRupees, 90000);
+    expect(sent?.lastName, 'Lovelace');
+  });
+
+  testWidgets('an age outside 1 to 120 is rejected before saving', (
+    tester,
+  ) async {
+    var saves = 0;
+    await _pump(
+      tester,
+      _app(
+        authApi: _FakeAuthApi(onLogin: () => _session),
+        profileApi: _FakeProfileApi((_, profile) {
+          saves++;
+          return profile;
+        }),
+      ),
+    );
+
+    await _signIn(tester);
+    await tester.tap(find.byKey(const Key('edit-profile-button')));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const Key('profile-age-field')), '200');
+    await tester.tap(find.byKey(const Key('profile-save-button')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Enter an age between 1 and 120.'), findsOneWidget);
+    expect(saves, 0);
+  });
+
   testWidgets('an expired token on profile save signs the user out', (
     tester,
   ) async {
@@ -388,8 +455,7 @@ void main() {
       _app(
         authApi: _FakeAuthApi(onLogin: () => _session),
         profileApi: _FakeProfileApi(
-          (_, _, _) =>
-              throw const ApiException('invalid token', statusCode: 401),
+          (_, _) => throw const ApiException('invalid token', statusCode: 401),
         ),
       ),
     );
@@ -543,6 +609,59 @@ void main() {
     expect(find.text('Where it went'), findsOneWidget);
   });
 
+  testWidgets('picking a date range reloads that range, clearing resets it', (
+    tester,
+  ) async {
+    final api = _FakeExpenseApi(_echo);
+    await _pump(
+      tester,
+      _app(
+        authApi: _FakeAuthApi(onLogin: () => _session),
+        expenseApi: api,
+      ),
+    );
+    await _signIn(tester);
+    expect(api.listRanges, [(null, null)]);
+
+    await tester.ensureVisible(find.byKey(const Key('date-range-button')));
+    await tester.tap(find.byKey(const Key('date-range-button')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Show'));
+    await tester.pumpAndSettle();
+
+    final today = DateUtils.dateOnly(DateTime.now());
+    final monthStart = DateTime(today.year, today.month);
+    expect(api.listRanges.last, (monthStart, today));
+    expect(
+      find.text(formatDateRange(DateTimeRange(start: monthStart, end: today))),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.byKey(const Key('date-range-clear')));
+    await tester.pumpAndSettle();
+
+    expect(api.listRanges.last, (null, null));
+    expect(find.byKey(const Key('date-range-clear')), findsNothing);
+  });
+
+  test('formatDateRange shows one day, a range, and other years', () {
+    final now = DateTime(2026, 10, 26);
+    String fmt(DateTime a, DateTime b) => formatDateRange(
+      DateTimeRange(start: a, end: b),
+      now: now,
+    );
+
+    expect(fmt(DateTime(2026, 10, 5), DateTime(2026, 10, 5)), '5 Oct');
+    expect(
+      fmt(DateTime(2026, 10, 1), DateTime(2026, 10, 15)),
+      '1 Oct – 15 Oct',
+    );
+    expect(
+      fmt(DateTime(2025, 12, 20), DateTime(2026, 1, 3)),
+      '20 Dec 2025 – 3 Jan',
+    );
+  });
+
   testWidgets('turning on auto-detect imports payment SMS from the inbox', (
     tester,
   ) async {
@@ -666,17 +785,28 @@ class _FakeAuthApi extends AuthApi {
 }
 
 class _FakeProfileApi extends ProfileApi {
-  _FakeProfileApi(this._update);
+  _FakeProfileApi(this._update, {this.saved});
 
-  final ProfileUpdate Function(String token, String first, String last) _update;
+  final Profile Function(String token, Profile profile) _update;
+
+  /// What `GET /profile` returns; `null` makes it fail like a network error.
+  final Profile? saved;
 
   @override
-  Future<ProfileUpdate> updateProfile({
+  Future<Profile> getProfile({required String accessToken}) async {
+    final profile = saved;
+    if (profile == null) {
+      throw const ApiException('offline');
+    }
+    return profile;
+  }
+
+  @override
+  Future<Profile> updateProfile({
     required String accessToken,
-    required String firstName,
-    required String lastName,
+    required Profile profile,
   }) async {
-    return _update(accessToken, firstName, lastName);
+    return _update(accessToken, profile);
   }
 }
 
@@ -696,11 +826,19 @@ class _FakeExpenseApi extends ExpenseApi {
     return _create(accessToken, input);
   }
 
+  /// The `(startDate, endDate)` of every list request, in order.
+  final listRanges = <(DateTime?, DateTime?)>[];
+
   @override
   Future<List<Expense>> listExpenses({
     required String accessToken,
     int limit = 200,
-  }) async => history;
+    DateTime? startDate,
+    DateTime? endDate,
+  }) async {
+    listRanges.add((startDate, endDate));
+    return history;
+  }
 }
 
 class _FakeSms extends SmsSource {

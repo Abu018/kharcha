@@ -57,6 +57,9 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
   Future<AuthSession?>? _renewing;
 
   List<Expense> _expenses = const [];
+
+  /// Days shown on the home screen, both inclusive; `null` shows everything.
+  DateTimeRange? _range;
   bool _loadingExpenses = false;
   String? _loadError;
 
@@ -159,6 +162,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
       _session = null;
       _loginNotice = notice;
       _expenses = const [];
+      _range = null;
       _loadError = null;
       _autoDetect = AutoDetectState.unsupported;
       _syncing = false;
@@ -235,7 +239,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
 
   void _merge(Iterable<Expense> added) {
     final byId = {for (final e in _expenses) e.id: e};
-    for (final e in added) {
+    for (final e in added.where(_inRange)) {
       byId[e.id] = e;
     }
     final epoch = DateTime.fromMillisecondsSinceEpoch(0);
@@ -243,24 +247,55 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
       ..sort((a, b) => (b.when ?? epoch).compareTo(a.when ?? epoch));
   }
 
+  bool _inRange(Expense e) {
+    final range = _range;
+    final when = e.when;
+    if (range == null || when == null) {
+      return true;
+    }
+    final start = DateUtils.dateOnly(range.start);
+    final end = DateUtils.dateOnly(range.end).add(const Duration(days: 1));
+    return !when.isBefore(start) && when.isBefore(end);
+  }
+
+  void _setRange(DateTimeRange? range) {
+    if (range == _range) {
+      return;
+    }
+    setState(() {
+      _range = range;
+      _expenses = const [];
+    });
+    unawaited(_loadExpenses());
+  }
+
   Future<void> _loadExpenses() async {
+    final range = _range;
     setState(() {
       _loadingExpenses = true;
       _loadError = null;
     });
     try {
       final list = await _authed(
-        (token) => _expenseApi.listExpenses(accessToken: token),
+        (token) => _expenseApi.listExpenses(
+          accessToken: token,
+          startDate: range?.start,
+          endDate: range?.end,
+        ),
       );
+      // A newer range was picked while this one was loading.
+      if (range != _range) {
+        return;
+      }
       if (mounted && list != null) {
         setState(() => _merge(list));
       }
     } on ApiException catch (error) {
-      if (mounted && _session != null) {
+      if (mounted && _session != null && range == _range) {
         setState(() => _loadError = error.message);
       }
     } finally {
-      if (mounted) {
+      if (mounted && range == _range) {
         setState(() => _loadingExpenses = false);
       }
     }
@@ -381,14 +416,15 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     }
   }
 
-  Future<void> _updateProfile(String firstName, String lastName) async {
+  Future<Profile?> _loadProfile() {
+    return _authed((token) => _profileApi.getProfile(accessToken: token));
+  }
+
+  Future<void> _updateProfile(Profile profile) async {
     final session = _session;
     final updated = await _authed(
-      (token) => _profileApi.updateProfile(
-        accessToken: token,
-        firstName: firstName,
-        lastName: lastName,
-      ),
+      (token) =>
+          _profileApi.updateProfile(accessToken: token, profile: profile),
     );
     if (updated != null && session != null) {
       setState(() {
@@ -427,9 +463,12 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
           : HomeScreen(
               session: session,
               onSignOut: _signOut,
+              onLoadProfile: _loadProfile,
               onUpdateProfile: _updateProfile,
               onAddExpense: _addExpense,
               expenses: _expenses,
+              dateRange: _range,
+              onDateRangeChanged: _setRange,
               loading: _loadingExpenses,
               loadError: _loadError,
               onRefresh: _refresh,

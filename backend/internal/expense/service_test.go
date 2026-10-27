@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -42,7 +43,9 @@ func (f *fakeRepo) Create(tx *models.Transaction) error {
 	return nil
 }
 
-func (f *fakeRepo) List(uuid.UUID, int) ([]models.Transaction, error) { return nil, nil }
+func (f *fakeRepo) List(uuid.UUID, int, time.Time, time.Time) ([]models.Transaction, error) {
+	return nil, nil
+}
 
 func (f *fakeRepo) Uncategorized(int) ([]models.Transaction, error) { return f.pending, nil }
 
