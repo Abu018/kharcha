@@ -295,3 +295,46 @@ func (s *Service) RunBackfill(ctx context.Context, interval time.Duration) {
 func (s *Service) CreateGroup(userID uuid.UUID, GroupMembers []string, name string) (string, error) {
 	return s.repo.CreateGroup(userID, GroupMembers, name)
 }
+
+type Expense struct {
+	ID          string    `json:"id"`
+	GroupID     string    `json:"group_id"`
+	Name        string    `json:"name"`
+	Amount      int64     `json:"amount"`
+	PaidBy      string    `json:"paid_by"`
+	Description string    `json:"description"`
+	CreatedAt   time.Time `json:"created_at"`
+}
+
+func toGroupExpense(row models.Expense) Expense {
+	name := strings.TrimSpace(row.Description)
+	return Expense{
+		ID:          row.ID.String(),
+		GroupID:     row.GroupID.String(),
+		Name:        name,
+		Amount:      row.Amount,
+		PaidBy:      row.CreatedBy,
+		Description: row.Description,
+		CreatedAt:   row.CreatedAt,
+	}
+}
+
+func (s *Service) ListExpense(userID, groupID uuid.UUID) ([]Expense, error) {
+	rows, err := s.repo.ListExpense(userID, groupID)
+	if err != nil {
+		return nil, err
+	}
+	expenses := make([]Expense, 0, len(rows))
+	for _, row := range rows {
+		expenses = append(expenses, toGroupExpense(row))
+	}
+	return expenses, nil
+}
+
+func (s *Service) AddExpenses(userID, groupID uuid.UUID, amount int64, description string) (Expense, error) {
+	row, err := s.repo.AddExpenses(userID, groupID, amount, description)
+	if err != nil {
+		return Expense{}, err
+	}
+	return toGroupExpense(row), nil
+}

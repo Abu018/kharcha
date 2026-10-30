@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 )
 
@@ -252,5 +253,109 @@ func (h *ExpenseHandler) CreateGroup(w http.ResponseWriter, r *http.Request) {
 		Success: true,
 		Message: "Group created",
 		Data:    map[string]string{"id": groupID, "name": input.GroupName},
+	})
+}
+
+func groupIDFrom(w http.ResponseWriter, r *http.Request) (uuid.UUID, bool) {
+	groupID, err := uuid.Parse(chi.URLParam(r, "groupID"))
+	if err != nil {
+		response.JSON(w, http.StatusBadRequest, response.Response{
+			Success: false,
+			Message: "invalid group id",
+		})
+		return uuid.Nil, false
+	}
+	return groupID, true
+}
+
+func (h *ExpenseHandler) ListExpense(w http.ResponseWriter, r *http.Request) {
+	userID, ok := userIDFrom(w, r)
+	if !ok {
+		return
+	}
+	groupID, ok := groupIDFrom(w, r)
+	if !ok {
+		return
+	}
+	result, err := h.expense.ListExpense(userID, groupID)
+	if err != nil {
+		if errors.Is(err, expense.ErrNotGroupMember) {
+			response.JSON(w, http.StatusNotFound, response.Response{
+				Success: false,
+				Message: "group not found",
+			})
+			return
+		}
+		log.Printf("list group expenses: %v", err)
+		response.JSON(w, http.StatusInternalServerError, response.Response{
+			Success: false,
+			Message: "failed to load expenses",
+		})
+		return
+	}
+	if result == nil {
+		result = []expense.Expense{}
+	}
+	response.JSON(w, http.StatusOK, response.Response{
+		Success: true,
+		Message: "ok",
+		Data:    result,
+	})
+}
+
+type addGroupExpenseInput struct {
+	Amount      int64  `json:"amount"`
+	Description string `json:"description"`
+	Name        string `json:"name"`
+}
+
+func (h *ExpenseHandler) AddExpenses(w http.ResponseWriter, r *http.Request) {
+	userID, ok := userIDFrom(w, r)
+	if !ok {
+		return
+	}
+	groupID, ok := groupIDFrom(w, r)
+	if !ok {
+		return
+	}
+	var input addGroupExpenseInput
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		response.JSON(w, http.StatusBadRequest, response.Response{
+			Success: false,
+			Message: "invalid JSON",
+		})
+		return
+	}
+	description := strings.TrimSpace(input.Description)
+	if description == "" {
+		description = strings.TrimSpace(input.Name)
+	}
+	if input.Amount <= 0 || description == "" {
+		response.JSON(w, http.StatusBadRequest, response.Response{
+			Success: false,
+			Message: "amount and description are required",
+		})
+		return
+	}
+	result, err := h.expense.AddExpenses(userID, groupID, input.Amount, description)
+	if err != nil {
+		if errors.Is(err, expense.ErrNotGroupMember) {
+			response.JSON(w, http.StatusNotFound, response.Response{
+				Success: false,
+				Message: "group not found",
+			})
+			return
+		}
+		log.Printf("add group expense: %v", err)
+		response.JSON(w, http.StatusInternalServerError, response.Response{
+			Success: false,
+			Message: "failed to save expense",
+		})
+		return
+	}
+	response.JSON(w, http.StatusCreated, response.Response{
+		Success: true,
+		Message: "expense saved",
+		Data:    result,
 	})
 }

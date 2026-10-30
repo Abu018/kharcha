@@ -37,12 +37,27 @@ class _Host extends StatefulWidget {
 
 class _HostState extends State<_Host> {
   var _groups = <ExpenseGroup>[];
+  final _expenses = <String, List<GroupExpense>>{};
 
   @override
   Widget build(BuildContext context) => MaterialApp(
     theme: AppTheme.dark(),
     home: GroupsScreen(
       groups: _groups,
+      currentUserId: 'me',
+      onListGroupExpenses: (group) async => _expenses[group.id] ?? const [],
+      onAddGroupExpense: (group, amount, description) async {
+        final expense = GroupExpense(
+          id: 'e-${_expenses.length}',
+          groupId: group.id,
+          name: description,
+          amountPaise: amount,
+          paidBy: 'me',
+          description: description,
+        );
+        _expenses.putIfAbsent(group.id, () => []).insert(0, expense);
+        return expense;
+      },
       onSearchUsers: (query) async {
         widget.queries.add(query);
         final q = query.toLowerCase();
@@ -58,7 +73,11 @@ class _HostState extends State<_Host> {
         widget.created.add((name, members));
         setState(() {
           _groups = [
-            ExpenseGroup(id: 'g-${_groups.length}', name: name, members: members),
+            ExpenseGroup(
+              id: 'g-${_groups.length}',
+              name: name,
+              members: members,
+            ),
             ..._groups,
           ];
         });
@@ -108,6 +127,80 @@ void main() {
     });
     expect(group.id, 'group-1');
     expect(group.members.single.id, _amit.id);
+  });
+
+  test('listGroupExpenses reads expenses for the group', () async {
+    late Uri url;
+    final api = ExpenseApi(
+      baseUrl: 'http://api',
+      client: MockClient((request) async {
+        url = request.url;
+        return http.Response(
+          jsonEncode({
+            'success': true,
+            'message': 'ok',
+            'data': [
+              {
+                'id': 'exp-1',
+                'group_id': 'group-1',
+                'name': 'Dinner',
+                'amount': 125000,
+                'paid_by': _amit.id,
+                'description': 'Dinner',
+              },
+            ],
+          }),
+          200,
+        );
+      }),
+    );
+
+    final expenses = await api.listGroupExpenses(
+      accessToken: 'token',
+      groupId: 'group-1',
+    );
+
+    expect(url.path, '/api/v1/groups/group-1/expenses');
+    expect(expenses.single.title, 'Dinner');
+    expect(expenses.single.formattedAmount, '₹1,250.00');
+  });
+
+  test('addGroupExpense posts amount and description', () async {
+    late http.Request sent;
+    final api = ExpenseApi(
+      baseUrl: 'http://api',
+      client: MockClient((request) async {
+        sent = request;
+        return http.Response(
+          jsonEncode({
+            'success': true,
+            'message': 'expense saved',
+            'data': {
+              'id': 'exp-1',
+              'group_id': 'group-1',
+              'name': 'Taxi',
+              'amount': 45000,
+              'paid_by': _amit.id,
+              'description': 'Taxi',
+            },
+          }),
+          201,
+        );
+      }),
+    );
+
+    final expense = await api.addGroupExpense(
+      accessToken: 'token',
+      groupId: 'group-1',
+      amountPaise: 45000,
+      description: 'Taxi',
+    );
+
+    expect(sent.method, 'POST');
+    expect(sent.url.toString(), 'http://api/api/v1/groups/group-1/expenses');
+    expect(jsonDecode(sent.body), {'amount': 45000, 'description': 'Taxi'});
+    expect(expense.id, 'exp-1');
+    expect(expense.title, 'Taxi');
   });
 
   test('listUsers sends the search and reads the users', () async {
@@ -196,5 +289,41 @@ void main() {
     expect(find.text('Goa trip'), findsOneWidget);
     expect(find.text('You, Yash'), findsOneWidget);
     expect(find.byKey(const Key('groups-empty')), findsNothing);
+  });
+
+  testWidgets('opens a group, lists expenses and adds one', (tester) async {
+    await _pump(tester, _Host(created: [], queries: []));
+
+    await tester.tap(find.byKey(const Key('new-group-button')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('group-name-field')),
+      'Goa trip',
+    );
+    await tester.tap(find.byKey(ValueKey('group-user-${_yash.id}')));
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('group-create-button')));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('group-g-0')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('group-expense-empty')), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('add-group-expense-button')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('group-expense-amount-field')),
+      '450',
+    );
+    await tester.enterText(
+      find.byKey(const Key('group-expense-description-field')),
+      'Dinner',
+    );
+    await tester.tap(find.byKey(const Key('group-expense-save-button')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Dinner'), findsOneWidget);
+    expect(find.text('Paid by You'), findsOneWidget);
+    expect(find.byKey(const Key('group-expense-empty')), findsNothing);
   });
 }

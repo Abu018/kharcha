@@ -5,6 +5,7 @@ import '../models/expense_group.dart';
 import '../theme/app_theme.dart';
 import '../widgets/shapes.dart';
 import 'create_group_screen.dart';
+import 'group_detail_screen.dart';
 
 /// Lists the user's groups and creates new ones.
 class GroupsScreen extends StatefulWidget {
@@ -12,12 +13,25 @@ class GroupsScreen extends StatefulWidget {
     super.key,
     required this.onCreateGroup,
     required this.onSearchUsers,
+    required this.onListGroupExpenses,
+    required this.onAddGroupExpense,
+    this.currentUserId = '',
     this.groups = const [],
   });
 
-  final Future<void> Function(String name, List<AppUser> members)
-  onCreateGroup;
+  final Future<void> Function(String name, List<AppUser> members) onCreateGroup;
   final Future<List<AppUser>> Function(String query) onSearchUsers;
+  final Future<List<GroupExpense>> Function(ExpenseGroup group)
+  onListGroupExpenses;
+  final Future<GroupExpense> Function(
+    ExpenseGroup group,
+    int amountPaise,
+    String description,
+  )
+  onAddGroupExpense;
+
+  /// Signed-in user, used to label "You" on expenses they paid.
+  final String currentUserId;
 
   /// Newest first.
   final List<ExpenseGroup> groups;
@@ -40,6 +54,20 @@ class _GroupsScreenState extends State<GroupsScreen> {
       ScaffoldMessenger.of(context)
           .showSnackBar(const SnackBar(content: Text('Group created')));
     }
+  }
+
+  Future<void> _openGroup(ExpenseGroup group) {
+    return Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => GroupDetailScreen(
+          group: group,
+          currentUserId: widget.currentUserId,
+          onLoad: () => widget.onListGroupExpenses(group),
+          onAdd: (amount, description) =>
+              widget.onAddGroupExpense(group, amount, description),
+        ),
+      ),
+    );
   }
 
   @override
@@ -79,6 +107,7 @@ class _GroupsScreenState extends State<GroupsScreen> {
                 _GroupCard(
                   group: group,
                   color: groupColor(groups.length - 1 - index),
+                  onTap: () => _openGroup(group),
                 ),
                 const SizedBox(height: 10),
               ],
@@ -164,10 +193,15 @@ class _GroupsBanner extends StatelessWidget {
 }
 
 class _GroupCard extends StatelessWidget {
-  const _GroupCard({required this.group, required this.color});
+  const _GroupCard({
+    required this.group,
+    required this.color,
+    required this.onTap,
+  });
 
   final ExpenseGroup group;
   final Color color;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
@@ -179,65 +213,71 @@ class _GroupCard extends StatelessWidget {
         .map((m) => m.firstName.isNotEmpty ? m.firstName : m.displayName)
         .join(', ');
 
-    return Container(
-      key: ValueKey('group-${group.id}'),
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: AppColors.card,
+    return Material(
+      color: AppColors.card,
+      borderRadius: BorderRadius.circular(22),
+      child: InkWell(
+        key: ValueKey('group-${group.id}'),
         borderRadius: BorderRadius.circular(22),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 48,
-            height: 48,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: color,
-              borderRadius: BorderRadius.circular(16),
-            ),
-            child: Text(
-              initial,
-              style: const TextStyle(
-                color: AppColors.ink,
-                fontWeight: FontWeight.w800,
-                fontSize: 20,
-              ),
-            ),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  group.name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Row(
+            children: [
+              Container(
+                width: 48,
+                height: 48,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: color,
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Text(
+                  initial,
                   style: const TextStyle(
                     color: AppColors.ink,
-                    fontWeight: FontWeight.w700,
-                    fontSize: 16,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 20,
                   ),
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  names.isEmpty
-                      ? '$members member${members == 1 ? '' : 's'}'
-                      : 'You, $names',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: Color(0xFF7A7A86),
-                    fontSize: 13,
-                  ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      group.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: AppColors.ink,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 16,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      names.isEmpty
+                          ? '$members member${members == 1 ? '' : 's'}'
+                          : 'You, $names',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Color(0xFF7A7A86),
+                        fontSize: 13,
+                      ),
+                    ),
+                  ],
                 ),
-              ],
-            ),
+              ),
+              const SizedBox(width: 8),
+              _AvatarStack(users: group.members),
+              const SizedBox(width: 4),
+              const Icon(Icons.chevron_right_rounded, color: Color(0xFF7A7A86)),
+            ],
           ),
-          const SizedBox(width: 8),
-          _AvatarStack(users: group.members),
-        ],
+        ),
       ),
     );
   }

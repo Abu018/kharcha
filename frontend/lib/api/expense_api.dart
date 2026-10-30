@@ -57,7 +57,9 @@ class ExpenseApi {
     final data = envelope['data'];
     final id = data is Map<String, dynamic> ? data['id'] : null;
     if (id is! String || id.isEmpty) {
-      throw const ApiException('Create group response did not include the group.');
+      throw const ApiException(
+        'Create group response did not include the group.',
+      );
     }
     return ExpenseGroup(id: id, name: name, members: members);
   }
@@ -109,6 +111,46 @@ class ExpenseApi {
       for (final item in data)
         if (item is Map<String, dynamic>) Expense.fromJson(item),
     ];
+  }
+
+  /// `GET /api/v1/groups/{groupId}/expenses`, newest first.
+  Future<List<GroupExpense>> listGroupExpenses({
+    required String accessToken,
+    required String groupId,
+  }) async {
+    final envelope = await _api.send(
+      'GET',
+      '/api/v1/groups/$groupId/expenses',
+      accessToken: accessToken,
+    );
+    final data = envelope['data'];
+    if (data is! List) {
+      return const [];
+    }
+    return [
+      for (final item in data)
+        if (item is Map<String, dynamic>) GroupExpense.fromJson(item),
+    ];
+  }
+
+  /// `POST /api/v1/groups/{groupId}/expenses`. Amount is in paise.
+  Future<GroupExpense> addGroupExpense({
+    required String accessToken,
+    required String groupId,
+    required int amountPaise,
+    required String description,
+  }) async {
+    final envelope = await _api.send(
+      'POST',
+      '/api/v1/groups/$groupId/expenses',
+      accessToken: accessToken,
+      body: {'amount': amountPaise, 'description': description},
+    );
+    final data = envelope['data'];
+    if (data is! Map<String, dynamic>) {
+      throw const ApiException('Save response did not include the expense.');
+    }
+    return GroupExpense.fromJson(data);
   }
 }
 

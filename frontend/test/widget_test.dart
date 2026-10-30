@@ -8,6 +8,7 @@ import 'package:my_app/api/profile_api.dart';
 import 'package:my_app/main.dart';
 import 'package:my_app/models/auth_session.dart';
 import 'package:my_app/models/expense.dart';
+import 'package:my_app/models/expense_group.dart';
 import 'package:my_app/models/spending_chart.dart';
 import 'package:my_app/screens/home_screen.dart';
 import 'package:my_app/services/notification_source.dart';
@@ -1005,6 +1006,26 @@ class _FakeExpenseApi extends ExpenseApi {
     listRanges.add((startDate, endDate));
     return history;
   }
+
+  @override
+  Future<List<GroupExpense>> listGroupExpenses({
+    required String accessToken,
+    required String groupId,
+  }) async => const [];
+
+  @override
+  Future<GroupExpense> addGroupExpense({
+    required String accessToken,
+    required String groupId,
+    required int amountPaise,
+    required String description,
+  }) async => GroupExpense(
+    id: 'ge-$groupId',
+    groupId: groupId,
+    name: description,
+    amountPaise: amountPaise,
+    description: description,
+  );
 }
 
 class _FakeSms extends SmsSource {

@@ -12,6 +12,10 @@ import (
 // with the same SourceRef.
 var ErrDuplicate = errors.New("transaction already recorded")
 
+// ErrNotGroupMember is returned when the user is not the group's owner
+// and is not in its member list.
+var ErrNotGroupMember = errors.New("not a group member")
+
 type Repo interface {
 	Create(tx *models.Transaction) error
 	// List returns transactions newest first, with occurred_at in
@@ -29,4 +33,6 @@ type Repo interface {
 	MonthlySpent(userID uuid.UUID, year int) ([]Series, error)
 	HighestSpendingAmount(userID uuid.UUID, year int) (int64, error)
 	CreateGroup(userID uuid.UUID, GroupMembers []string, GroupName string) (string, error)
+	ListExpense(userID, groupID uuid.UUID) ([]models.Expense, error)
+	AddExpenses(userID, groupID uuid.UUID, amount int64, description string) (models.Expense, error)
 }

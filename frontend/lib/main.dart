@@ -545,6 +545,33 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     }
   }
 
+  Future<List<GroupExpense>> _listGroupExpenses(ExpenseGroup group) async {
+    final list = await _authed(
+      (token) =>
+          _expenseApi.listGroupExpenses(accessToken: token, groupId: group.id),
+    );
+    return list ?? const [];
+  }
+
+  Future<GroupExpense> _addGroupExpense(
+    ExpenseGroup group,
+    int amountPaise,
+    String description,
+  ) async {
+    final saved = await _authed(
+      (token) => _expenseApi.addGroupExpense(
+        accessToken: token,
+        groupId: group.id,
+        amountPaise: amountPaise,
+        description: description,
+      ),
+    );
+    if (saved == null) {
+      throw const ApiException('Could not save the expense.');
+    }
+    return saved;
+  }
+
   Future<List<AppUser>> _searchUsers(String query) async {
     final users = await _authed(
       (token) => _profileApi.listUsers(accessToken: token, query: query),
@@ -619,8 +646,11 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
               ),
               groups: GroupsScreen(
                 groups: _groups,
+                currentUserId: session.userId,
                 onCreateGroup: _createGroup,
                 onSearchUsers: _searchUsers,
+                onListGroupExpenses: _listGroupExpenses,
+                onAddGroupExpense: _addGroupExpense,
               ),
             ),
     );

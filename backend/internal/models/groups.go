@@ -12,10 +12,7 @@ type Group struct {
 
 type GroupMembers struct {
 	BaseModel
-
 	GroupID uuid.UUID `gorm:"type:uuid;not null;uniqueIndex:idx_group_member" json:"group_id"`
-	Group   Group     `gorm:"foreignKey:GroupID;references:ID;constraint:OnDelete:CASCADE" json:"-"`
-
-	UserID uuid.UUID `gorm:"type:uuid;not null;uniqueIndex:idx_group_member;index" json:"user_id"`
-	User   User      `gorm:"foreignKey:UserID;references:ID" json:"-"`
+	UserID  uuid.UUID `gorm:"type:uuid;not null;uniqueIndex:idx_group_member;index" json:"user_id"`
+	User    User      `gorm:"foreignKey:UserID;references:ID" json:"-"`
 }

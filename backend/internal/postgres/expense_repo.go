@@ -141,3 +141,54 @@ func (r *ExpenseRepo) CreateGroup(userID uuid.UUID, GroupMembers []string, Group
 	}
 	return groupID.ID.String(), nil
 }
+
+func (r *ExpenseRepo) inGroup(userID, groupID uuid.UUID) (bool, error) {
+	var n int64
+	err := r.db.Raw(`
+		SELECT COUNT(*) FROM (
+			SELECT id FROM groups
+			WHERE id = ? AND user_id = ? AND deleted_at IS NULL
+			UNION
+			SELECT group_id FROM group_members
+			WHERE group_id = ? AND user_id = ? AND deleted_at IS NULL
+		) AS g`,
+		groupID, userID, groupID, userID,
+	).Scan(&n).Error
+	return n > 0, err
+}
+
+func (r *ExpenseRepo) ListExpense(userID, groupID uuid.UUID) ([]models.Expense, error) {
+	ok, err := r.inGroup(userID, groupID)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, expense.ErrNotGroupMember
+	}
+	var result []models.Expense
+	err = r.db.
+		Where("group_id = ?", groupID).
+		Order("created_at DESC").
+		Find(&result).Error
+	return result, err
+}
+
+func (r *ExpenseRepo) AddExpenses(userID, groupID uuid.UUID, amount int64, description string) (models.Expense, error) {
+	ok, err := r.inGroup(userID, groupID)
+	if err != nil {
+		return models.Expense{}, err
+	}
+	if !ok {
+		return models.Expense{}, expense.ErrNotGroupMember
+	}
+	row := models.Expense{
+		GroupID:     groupID,
+		CreatedBy:   userID.String(),
+		Amount:      amount,
+		Description: description,
+	}
+	if err := r.db.Create(&row).Error; err != nil {
+		return models.Expense{}, err
+	}
+	return row, nil
+}
