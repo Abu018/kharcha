@@ -195,6 +195,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     helperText: '8 to 72 characters',
                     prefixIcon: const Icon(Icons.lock_outline),
                     suffixIcon: IconButton(
+                      tooltip: _obscurePassword
+                          ? 'Show password'
+                          : 'Hide password',
                       onPressed: _submitting
                           ? null
                           : () {
