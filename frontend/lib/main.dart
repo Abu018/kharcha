@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import 'api/auth_api.dart';
 import 'api/expense_api.dart';
+import 'api/notification_api.dart';
 import 'api/profile_api.dart';
 import 'models/app_user.dart';
 import 'models/auth_session.dart';
@@ -16,6 +17,7 @@ import 'screens/home_screen.dart';
 import 'screens/login_screen.dart';
 import 'services/auto_detect.dart';
 import 'services/notification_source.dart';
+import 'services/push_service.dart';
 import 'services/session_store.dart';
 import 'services/sms_source.dart';
 import 'theme/app_theme.dart';
@@ -33,6 +35,8 @@ class MyApp extends StatefulWidget {
     this.smsSource,
     this.notificationSource,
     this.sessionStore,
+    this.notificationApi,
+    this.pushService,
   });
 
   final AuthApi? authApi;
@@ -41,6 +45,8 @@ class MyApp extends StatefulWidget {
   final SmsSource? smsSource;
   final NotificationSource? notificationSource;
   final SessionStore? sessionStore;
+  final NotificationApi? notificationApi;
+  final PushService? pushService;
 
   @override
   State<MyApp> createState() => _MyAppState();
@@ -63,6 +69,9 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     api: _expenseApi,
   );
   late final SessionStore _store = widget.sessionStore ?? SessionStore();
+  late final NotificationApi _notificationApi =
+      widget.notificationApi ?? NotificationApi();
+  late final PushService _push = widget.pushService ?? PushService();
 
   AuthSession? _session;
   String? _loginNotice;
@@ -88,6 +97,8 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
   DateTime? _lastSynced;
   StreamSubscription<SmsMessageData>? _incoming;
   StreamSubscription<PaymentNotification>? _incomingNotifications;
+  StreamSubscription<String>? _pushTokenRefreshes;
+  StreamSubscription<PushMessage>? _pushMessages;
 
   bool get _detecting =>
       _autoDetect == AutoDetectState.on ||
@@ -105,6 +116,8 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     WidgetsBinding.instance.removeObserver(this);
     _incoming?.cancel();
     _incomingNotifications?.cancel();
+    _pushTokenRefreshes?.cancel();
+    _pushMessages?.cancel();
     super.dispose();
   }
 
@@ -184,6 +197,45 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     unawaited(_loadExpenses());
     unawaited(_loadChart());
     unawaited(_initAutoDetect());
+    unawaited(_initPush());
+  }
+
+  /// Gets this device's FCM token and links it to the signed-in user, then
+  /// keeps the backend up to date when Firebase issues a new one.
+  Future<void> _initPush() async {
+    final token = await _push.getToken();
+    if (token == null || !mounted || _session == null) {
+      return;
+    }
+    await _sendPushToken(token);
+    _pushTokenRefreshes ??= _push.tokenRefreshes().listen(
+      (token) => unawaited(_sendPushToken(token)),
+      onError: (_) {},
+    );
+    _pushMessages ??= _push.foregroundMessages().listen((message) {
+      final text = [
+        message.title,
+        message.body,
+      ].where((s) => s.isNotEmpty).join(' · ');
+      if (text.isNotEmpty) {
+        _messengerKey.currentState?.showSnackBar(
+          SnackBar(content: Text(text)),
+        );
+      }
+    }, onError: (_) {});
+  }
+
+  Future<void> _sendPushToken(String token) async {
+    try {
+      await _authed(
+        (accessToken) => _notificationApi.registerDeviceToken(
+          accessToken: accessToken,
+          token: token,
+        ),
+      );
+    } on ApiException {
+      // Sent again on the next sign-in or app start.
+    }
   }
 
   /// Reloads spending per month of the current year. Failures keep the chart
@@ -207,6 +259,11 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     _incoming = null;
     _incomingNotifications?.cancel();
     _incomingNotifications = null;
+    _pushTokenRefreshes?.cancel();
+    _pushTokenRefreshes = null;
+    _pushMessages?.cancel();
+    _pushMessages = null;
+    unawaited(_push.deleteToken());
     unawaited(_store.clear());
     setState(() {
       _session = null;

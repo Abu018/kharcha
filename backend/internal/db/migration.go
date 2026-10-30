@@ -17,6 +17,7 @@ func Migration(db *gorm.DB) error {
 		&models.GroupMembers{},
 		&models.Expense{},
 		&models.ExepenseItems{},
+		&models.Ephemeral{},
 	); err != nil {
 		return err
 	}

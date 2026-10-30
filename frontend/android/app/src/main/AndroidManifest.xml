@@ -1,5 +1,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- Push notifications (Firebase Cloud Messaging), asked for at
+         runtime on Android 13+. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <!-- SMS permissions live in src/full/AndroidManifest.xml; the play
          flavor leaves them out and the app hides SMS import. -->
     <application
