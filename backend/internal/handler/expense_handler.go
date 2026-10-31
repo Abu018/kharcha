@@ -361,11 +361,11 @@ func (h *ExpenseHandler) AddExpenses(w http.ResponseWriter, r *http.Request) {
 }
 
 type updateCategoryInput struct {
-	Category string `json:"category"`
+	CategoryID uuid.UUID `json:"category_id"`
 }
 
 // UpdateCategory changes the category of one of the user's transactions:
-// PUT /expenses/{id}/category with {"category": "Food"}.
+// PUT /expenses/{id}/category with {"category_id": "<id from GET /categories>"}.
 func (h *ExpenseHandler) UpdateCategory(w http.ResponseWriter, r *http.Request) {
 	userID, ok := userIDFrom(w, r)
 	if !ok {
@@ -380,15 +380,15 @@ func (h *ExpenseHandler) UpdateCategory(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	var input updateCategoryInput
-	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil || input.CategoryID == uuid.Nil {
 		response.JSON(w, http.StatusBadRequest, response.Response{
 			Success: false,
-			Message: "invalid JSON",
+			Message: "category_id must be an id from GET /categories",
 		})
 		return
 	}
 
-	tx, err := h.expense.UpdateCategory(userID, id, input.Category)
+	tx, err := h.expense.UpdateCategory(userID, id, input.CategoryID)
 	if err != nil {
 		switch {
 		case errors.Is(err, expense.ErrInvalidCategory):
@@ -415,5 +415,24 @@ func (h *ExpenseHandler) UpdateCategory(w http.ResponseWriter, r *http.Request) 
 		Success: true,
 		Message: "category updated",
 		Data:    tx,
+	})
+}
+
+// ListCategory returns the categories a payment can be moved to:
+// GET /categories.
+func (h *ExpenseHandler) ListCategory(w http.ResponseWriter, r *http.Request) {
+	result, err := h.expense.ListCategory()
+	if err != nil {
+		log.Printf("list categories: %v", err)
+		response.JSON(w, http.StatusInternalServerError, response.Response{
+			Success: false,
+			Message: "failed to load categories",
+		})
+		return
+	}
+	response.JSON(w, http.StatusOK, response.Response{
+		Success: true,
+		Message: "ok",
+		Data:    result,
 	})
 }

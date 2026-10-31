@@ -204,6 +204,51 @@ curl -X POST "$API_URL"/api/v1/expense \
   -d '{"amount_paise":45050,"currency":"INR","bank_name":"HDFC","account_type":"savings","type":"debit","vendor":"Swiggy"}'
 ```
 
+### `GET /api/v1/categories` — Live
+
+The categories a transaction can be moved to, sorted by name. `Unknown`
+(not classified yet) and `Income` (set automatically on credits) are left out.
+
+```json
+[
+  { "id": "5b0c…", "category": "Bills" },
+  { "id": "9e41…", "category": "Food" }
+]
+```
+
+| Status | `message`                         |
+| ------ | --------------------------------- |
+| 401    | `missing token` / `invalid token` |
+| 500    | `failed to load categories`       |
+
+### `PUT /api/v1/expenses/{id}/category` — Live
+
+Changes the category of one of the user's transactions, e.g. when the
+automatic category is wrong.
+
+```json
+{ "category_id": "9e41…" }
+```
+
+`category_id` must be an `id` from `GET /api/v1/categories`.
+
+`200` returns the updated transaction, with both `category` (the name) and
+`category_id`.
+
+| Status | `message`                                        |
+| ------ | ------------------------------------------------ |
+| 400    | `invalid expense id` / `category_id must be an id from GET /categories` / `category must be one of the known categories` |
+| 401    | `missing token` / `invalid token`                |
+| 404    | `expense not found` (missing, or another user's) |
+| 500    | `failed to update category`                      |
+
+```sh
+curl -X PUT "$API_URL"/api/v1/expenses/$EXPENSE_ID/category \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"category_id":"'"$CATEGORY_ID"'"}'
+```
+
 ### Transaction object
 
 ```json

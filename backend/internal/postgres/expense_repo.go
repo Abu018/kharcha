@@ -1,6 +1,8 @@
 package postgres
 
 import (
+	"errors"
+	"fmt"
 	"my_app/backend/internal/expense"
 	"my_app/backend/internal/models"
 	"time"
@@ -20,7 +22,21 @@ func NewExpenseRepo(db *gorm.DB) *ExpenseRepo {
 	return &ExpenseRepo{db: db}
 }
 
+// categoryID returns the id of the category called name.
+func (r *ExpenseRepo) categoryID(name string) (uuid.UUID, error) {
+	var c models.Category
+	if err := r.db.Select("id").Where("name = ?", name).First(&c).Error; err != nil {
+		return uuid.Nil, fmt.Errorf("category %q: %w", name, err)
+	}
+	return c.ID, nil
+}
+
 func (r *ExpenseRepo) Create(tx *models.Transaction) error {
+	id, err := r.categoryID(tx.Category)
+	if err != nil {
+		return err
+	}
+	tx.CategoryID = id
 	res := r.db.Clauses(clause.OnConflict{DoNothing: true}).Create(tx)
 	if res.Error != nil {
 		return res.Error
@@ -41,6 +57,7 @@ func (r *ExpenseRepo) List(userID uuid.UUID, limit int, from, to time.Time) ([]m
 	}
 	var txs []models.Transaction
 	err := q.
+		Preload("CategoryRef").
 		Order("occurred_at DESC, created_at DESC").
 		Limit(limit).
 		Find(&txs).Error
@@ -60,7 +77,7 @@ func (r *ExpenseRepo) HasMatch(userID uuid.UUID, amountPaise int64, txType, sour
 func (r *ExpenseRepo) Uncategorized(limit int) ([]models.Transaction, error) {
 	var txs []models.Transaction
 	err := r.db.
-		Where("category = ?", expense.UnknownCategory).
+		Where("category_id = (SELECT id FROM categories WHERE name = ?)", expense.UnknownCategory).
 		Order("created_at").
 		Limit(limit).
 		Find(&txs).Error
@@ -68,24 +85,43 @@ func (r *ExpenseRepo) Uncategorized(limit int) ([]models.Transaction, error) {
 }
 
 func (r *ExpenseRepo) SetCategory(id uuid.UUID, category string) error {
+	categoryID, err := r.categoryID(category)
+	if err != nil {
+		return err
+	}
 	return r.db.Model(&models.Transaction{}).
 		Where("id = ?", id).
-		Update("category", category).Error
+		Update("category_id", categoryID).Error
 }
 
-func (r *ExpenseRepo) UpdateCategory(userID, id uuid.UUID, category string) (models.Transaction, error) {
-	var tx models.Transaction
-	res := r.db.Model(&tx).
-		Clauses(clause.Returning{}).
+func (r *ExpenseRepo) UpdateCategory(userID, id, categoryID uuid.UUID) (models.Transaction, error) {
+	res := r.db.Model(&models.Transaction{}).
 		Where("id = ? AND user_id = ?", id, userID).
-		Update("category", category)
+		Update("category_id", categoryID)
 	if res.Error != nil {
 		return models.Transaction{}, res.Error
 	}
 	if res.RowsAffected == 0 {
 		return models.Transaction{}, expense.ErrNotFound
 	}
-	return tx, nil
+	var tx models.Transaction
+	err := r.db.Preload("CategoryRef").First(&tx, "id = ?", id).Error
+	return tx, err
+}
+
+func (r *ExpenseRepo) Category(id uuid.UUID) (models.Category, error) {
+	var c models.Category
+	err := r.db.First(&c, "id = ?", id).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return models.Category{}, expense.ErrInvalidCategory
+	}
+	return c, err
+}
+
+func (r *ExpenseRepo) ListCategory() ([]models.Category, error) {
+	var categories []models.Category
+	err := r.db.Order("name").Find(&categories).Error
+	return categories, err
 }
 
 func (r *ExpenseRepo) MonthlySpent(userID uuid.UUID, year int) ([]expense.Series, error) {

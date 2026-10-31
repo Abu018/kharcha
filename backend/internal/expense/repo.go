@@ -24,6 +24,10 @@ var ErrNotFound = errors.New("transaction not found")
 // or cannot be chosen by the user.
 var ErrInvalidCategory = errors.New("invalid category")
 
+type CategoryResponse struct {
+	Id   uuid.UUID `json:"id"`
+	Name string    `json:"category"`
+}
 type Repo interface {
 	Create(tx *models.Transaction) error
 	// List returns transactions newest first, with occurred_at in
@@ -35,10 +39,15 @@ type Repo interface {
 	HasMatch(userID uuid.UUID, amountPaise int64, txType, source string, from, to time.Time) (bool, error)
 	// Uncategorized returns transactions still waiting for a category.
 	Uncategorized(limit int) ([]models.Transaction, error)
+	// SetCategory moves a transaction to the category with this name.
 	SetCategory(id uuid.UUID, category string) error
 	// UpdateCategory sets the category of the user's transaction and returns
 	// it, or ErrNotFound when the user has no transaction with that id.
-	UpdateCategory(userID, id uuid.UUID, category string) (models.Transaction, error)
+	UpdateCategory(userID, id, categoryID uuid.UUID) (models.Transaction, error)
+	// Category returns the category with this id, or ErrInvalidCategory.
+	Category(id uuid.UUID) (models.Category, error)
+	// ListCategory returns every category, sorted by name.
+	ListCategory() ([]models.Category, error)
 	// MonthlySpent returns the user's debits per month of year, Jan to Dec,
 	// with Y 0 for months without payments.
 	MonthlySpent(userID uuid.UUID, year int) ([]Series, error)

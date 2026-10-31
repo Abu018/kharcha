@@ -293,25 +293,22 @@ func (s *Service) RunBackfill(ctx context.Context, interval time.Duration) {
 	}
 }
 
-// UpdateCategory lets the user correct a transaction's category. category is
-// matched case-insensitively; Unknown cannot be chosen because it means "not
-// classified yet" and Backfill would overwrite it.
-func (s *Service) UpdateCategory(userID, id uuid.UUID, category string) (models.Transaction, error) {
-	name, ok := canonicalCategory(category)
-	if !ok || name == unknownCategory {
+// UpdateCategory lets the user correct a transaction's category. Only the
+// categories returned by ListCategory can be chosen: Unknown means "not
+// classified yet" and Backfill would overwrite it, and Income is set by rule.
+func (s *Service) UpdateCategory(userID, id, categoryID uuid.UUID) (models.Transaction, error) {
+	c, err := s.repo.Category(categoryID)
+	if err != nil {
+		return models.Transaction{}, err
+	}
+	if !selectable(c.Name) {
 		return models.Transaction{}, ErrInvalidCategory
 	}
-	return s.repo.UpdateCategory(userID, id, name)
+	return s.repo.UpdateCategory(userID, id, categoryID)
 }
 
-func canonicalCategory(c string) (string, bool) {
-	c = strings.TrimSpace(c)
-	for _, known := range Categories {
-		if strings.EqualFold(c, known) {
-			return known, true
-		}
-	}
-	return "", false
+func selectable(category string) bool {
+	return category != unknownCategory && category != incomeCategory
 }
 
 func (s *Service) CreateGroup(userID uuid.UUID, GroupMembers []string, name string) (string, error) {
@@ -369,4 +366,25 @@ func RunScheduler(ctx context.Context, ticker *time.Ticker) {
 			log.Printf("Task executed at: %v", t)
 		}
 	}
+}
+
+// ListCategory returns the categories a user can move a payment to. Unknown
+// and Income are left out: they are set by the server, not chosen.
+func (s *Service) ListCategory() ([]CategoryResponse, error) {
+	result, err := s.repo.ListCategory()
+	if err != nil {
+		return []CategoryResponse{}, err
+	}
+	response := make([]CategoryResponse, 0, len(result))
+
+	for _, data := range result {
+		if !selectable(data.Name) {
+			continue
+		}
+		response = append(response, CategoryResponse{
+			Id:   data.ID,
+			Name: data.Name,
+		})
+	}
+	return response, nil
 }

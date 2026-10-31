@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"gorm.io/gorm"
 )
 
 type Transaction struct {
@@ -19,7 +20,13 @@ type Transaction struct {
 
 	Vendor    string `gorm:"size:255" json:"vendor"`
 	VendorUPI string `gorm:"size:255" json:"vendor_upi"`
-	Category  string `gorm:"size:30;not null;default:Unknown" json:"category"`
+
+	CategoryID  uuid.UUID `gorm:"type:uuid;not null;index" json:"category_id"`
+	CategoryRef *Category `gorm:"foreignKey:CategoryID;references:ID" json:"-"`
+	// Category is the name of the category, e.g. "Food". It is not stored:
+	// it is read from CategoryRef when that is preloaded, and the repository
+	// looks up CategoryID from it when saving.
+	Category string `gorm:"-" json:"category"`
 
 	// When the payment happened; for SMS imports this is the SMS time.
 	OccurredAt time.Time `gorm:"not null;default:CURRENT_TIMESTAMP;index" json:"occurred_at"`
@@ -35,4 +42,11 @@ type Transaction struct {
 
 func (Transaction) TableName() string {
 	return "transaction"
+}
+
+func (t *Transaction) AfterFind(*gorm.DB) error {
+	if t.CategoryRef != nil {
+		t.Category = t.CategoryRef.Name
+	}
+	return nil
 }
