@@ -359,3 +359,61 @@ func (h *ExpenseHandler) AddExpenses(w http.ResponseWriter, r *http.Request) {
 		Data:    result,
 	})
 }
+
+type updateCategoryInput struct {
+	Category string `json:"category"`
+}
+
+// UpdateCategory changes the category of one of the user's transactions:
+// PUT /expenses/{id}/category with {"category": "Food"}.
+func (h *ExpenseHandler) UpdateCategory(w http.ResponseWriter, r *http.Request) {
+	userID, ok := userIDFrom(w, r)
+	if !ok {
+		return
+	}
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		response.JSON(w, http.StatusBadRequest, response.Response{
+			Success: false,
+			Message: "invalid expense id",
+		})
+		return
+	}
+	var input updateCategoryInput
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		response.JSON(w, http.StatusBadRequest, response.Response{
+			Success: false,
+			Message: "invalid JSON",
+		})
+		return
+	}
+
+	tx, err := h.expense.UpdateCategory(userID, id, input.Category)
+	if err != nil {
+		switch {
+		case errors.Is(err, expense.ErrInvalidCategory):
+			response.JSON(w, http.StatusBadRequest, response.Response{
+				Success: false,
+				Message: "category must be one of the known categories",
+			})
+		case errors.Is(err, expense.ErrNotFound):
+			response.JSON(w, http.StatusNotFound, response.Response{
+				Success: false,
+				Message: "expense not found",
+			})
+		default:
+			log.Printf("update category: %v", err)
+			response.JSON(w, http.StatusInternalServerError, response.Response{
+				Success: false,
+				Message: "failed to update category",
+			})
+		}
+		return
+	}
+
+	response.JSON(w, http.StatusOK, response.Response{
+		Success: true,
+		Message: "category updated",
+		Data:    tx,
+	})
+}

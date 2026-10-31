@@ -1,14 +1,17 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"my_app/backend/cmd/middleware"
 	"my_app/backend/cmd/server"
 	"my_app/backend/internal/db"
+	"my_app/backend/internal/expense"
 	"my_app/backend/internal/models"
 	"my_app/backend/internal/routes"
 	"my_app/backend/internal/utils"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/joho/godotenv"
@@ -22,7 +25,6 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-
 	dsn := fmt.Sprintf(
 		"host=%s port=%s user=%s password=%s dbname=%s sslmode=%s",
 		cfg.DB.ServerConfig.Host,
@@ -32,6 +34,13 @@ func main() {
 		cfg.DB.Name,
 		cfg.DB.SSLMode,
 	)
+	ctx, cancel := context.WithCancel(context.Background())
+
+	defer cancel()
+	ticker := time.NewTicker(1 * time.Minute)
+	defer ticker.Stop()
+	go expense.RunScheduler(ctx, ticker)
+
 	conn, err := gorm.Open(postgres.Open(dsn), &gorm.Config{TranslateError: true})
 	if err != nil {
 		log.Fatal(err)

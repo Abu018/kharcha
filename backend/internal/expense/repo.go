@@ -16,6 +16,14 @@ var ErrDuplicate = errors.New("transaction already recorded")
 // and is not in its member list.
 var ErrNotGroupMember = errors.New("not a group member")
 
+// ErrNotFound is returned when the transaction does not exist or belongs to
+// another user.
+var ErrNotFound = errors.New("transaction not found")
+
+// ErrInvalidCategory is returned when a category is not one of Categories
+// or cannot be chosen by the user.
+var ErrInvalidCategory = errors.New("invalid category")
+
 type Repo interface {
 	Create(tx *models.Transaction) error
 	// List returns transactions newest first, with occurred_at in
@@ -28,6 +36,9 @@ type Repo interface {
 	// Uncategorized returns transactions still waiting for a category.
 	Uncategorized(limit int) ([]models.Transaction, error)
 	SetCategory(id uuid.UUID, category string) error
+	// UpdateCategory sets the category of the user's transaction and returns
+	// it, or ErrNotFound when the user has no transaction with that id.
+	UpdateCategory(userID, id uuid.UUID, category string) (models.Transaction, error)
 	// MonthlySpent returns the user's debits per month of year, Jan to Dec,
 	// with Y 0 for months without payments.
 	MonthlySpent(userID uuid.UUID, year int) ([]Series, error)

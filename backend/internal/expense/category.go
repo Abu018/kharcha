@@ -14,7 +14,7 @@ const (
 // Categories lists every category a transaction can have.
 var Categories = []string{
 	"Food", "Groceries", "Transport", "Shopping", "Bills", "Entertainment",
-	"Health", "Transfers", incomeCategory, "Other", unknownCategory,
+	"Health", "Transfers", "Sports", incomeCategory, "Other", unknownCategory,
 }
 
 // IsCategory reports whether c is one of Categories, matched exactly.
@@ -35,10 +35,15 @@ var keywordRules = []struct {
 }{
 	{"Entertainment", []string{
 		"jiohotstar", "hotstar", "netflix", "spotify", "prime video", "sonyliv", "zee5",
-		"youtube", "bookmyshow", "pvr", "inox", "playo", "playstore", "steam",
+		"youtube", "bookmyshow", "pvr", "inox", "playstore", "steam",
+	}},
+	{"Sports", []string{
+		"sport", "playo", "hudle", "decathlon", "cultfit", "cult.fit", "gym",
+		"fitness", "turf", "stadium", "badminton", "cricket", "football",
+		"swimming", "yoga",
 	}},
 	{"Groceries", []string{
-		"zepto", "blinkit", "grofers", "bigbasket", "instamart", "dmart",
+		"zepto", "blinkit", "blink commerce", "grofers", "bigbasket", "instamart", "dmart",
 		"jiomart", "hyper market", "hypermarket", "supermarket", "super market",
 		"grand fresh", "kirana", "hap daily", "milk", "dairy", "vegetable",
 	}},
@@ -59,7 +64,7 @@ var keywordRules = []struct {
 	}},
 	{"Shopping", []string{
 		"amazon", "flipkart", "myntra", "ajio", "meesho", "nykaa", "tata cliq",
-		"decathlon", "ikea", "croma", "reliance digital", "style", "fashion",
+		"ikea", "croma", "reliance digital", "style", "fashion",
 		"trends", "lifestyle",
 	}},
 	{"Bills", []string{

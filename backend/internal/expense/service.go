@@ -116,7 +116,8 @@ Transport: cabs, fuel, vehicle repair.
 Health: pharmacies, hospitals, clinics, labs.
 Shopping: clothes, electronics, online stores.
 Bills: phone, electricity, internet, rent, software and IT services.
-Entertainment: streaming, movies, games, sports.
+Entertainment: streaming, movies, games.
+Sports: turf and court bookings, gyms, sports gear, coaching.
 Other: anything else.
 
 Examples:
@@ -292,6 +293,27 @@ func (s *Service) RunBackfill(ctx context.Context, interval time.Duration) {
 	}
 }
 
+// UpdateCategory lets the user correct a transaction's category. category is
+// matched case-insensitively; Unknown cannot be chosen because it means "not
+// classified yet" and Backfill would overwrite it.
+func (s *Service) UpdateCategory(userID, id uuid.UUID, category string) (models.Transaction, error) {
+	name, ok := canonicalCategory(category)
+	if !ok || name == unknownCategory {
+		return models.Transaction{}, ErrInvalidCategory
+	}
+	return s.repo.UpdateCategory(userID, id, name)
+}
+
+func canonicalCategory(c string) (string, bool) {
+	c = strings.TrimSpace(c)
+	for _, known := range Categories {
+		if strings.EqualFold(c, known) {
+			return known, true
+		}
+	}
+	return "", false
+}
+
 func (s *Service) CreateGroup(userID uuid.UUID, GroupMembers []string, name string) (string, error) {
 	return s.repo.CreateGroup(userID, GroupMembers, name)
 }
@@ -337,4 +359,14 @@ func (s *Service) AddExpenses(userID, groupID uuid.UUID, amount int64, descripti
 		return Expense{}, err
 	}
 	return toGroupExpense(row), nil
+}
+func RunScheduler(ctx context.Context, ticker *time.Ticker) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case t := <-ticker.C:
+			log.Printf("Task executed at: %v", t)
+		}
+	}
 }

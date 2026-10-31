@@ -73,6 +73,21 @@ func (r *ExpenseRepo) SetCategory(id uuid.UUID, category string) error {
 		Update("category", category).Error
 }
 
+func (r *ExpenseRepo) UpdateCategory(userID, id uuid.UUID, category string) (models.Transaction, error) {
+	var tx models.Transaction
+	res := r.db.Model(&tx).
+		Clauses(clause.Returning{}).
+		Where("id = ? AND user_id = ?", id, userID).
+		Update("category", category)
+	if res.Error != nil {
+		return models.Transaction{}, res.Error
+	}
+	if res.RowsAffected == 0 {
+		return models.Transaction{}, expense.ErrNotFound
+	}
+	return tx, nil
+}
+
 func (r *ExpenseRepo) MonthlySpent(userID uuid.UUID, year int) ([]expense.Series, error) {
 
 	var points []expense.Series
