@@ -26,6 +26,7 @@ abstract final class AppColors {
     'shopping' => pink,
     'bills' => lavender,
     'entertainment' => mint,
+    'sports' => const Color(0xFFFFA36B),
     'health' => const Color(0xFFFF9EA8),
     'transfers' => const Color(0xFF8FD3FF),
     'income' => mint,

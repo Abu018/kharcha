@@ -6,6 +6,22 @@ const expenseAccountTypes = {
   'upi_wallet': 'UPI wallet',
 };
 
+/// A category a payment can be moved to, from `GET /api/v1/categories`.
+class ExpenseCategory {
+  const ExpenseCategory({required this.id, required this.name});
+
+  factory ExpenseCategory.fromJson(Map<String, dynamic> json) =>
+      ExpenseCategory(
+        id: json['id'] as String? ?? '',
+        name: json['category'] as String? ?? '',
+      );
+
+  final String id;
+
+  /// e.g. `Food`.
+  final String name;
+}
+
 /// Formats paise with Indian digit grouping, e.g. `₹1,25,000.50`.
 String formatPaise(int paise, {String currency = 'INR', bool decimals = true}) {
   final negative = paise < 0;
@@ -96,6 +112,7 @@ class Expense {
     this.vendor = '',
     this.vendorUpi = '',
     this.category = '',
+    this.categoryId = '',
     this.source = 'manual',
     this.occurredAt,
     this.createdAt,
@@ -119,6 +136,7 @@ class Expense {
       vendor: text('vendor'),
       vendorUpi: text('vendor_upi'),
       category: text('category'),
+      categoryId: text('category_id'),
       source: source.isEmpty ? 'manual' : source,
       occurredAt: DateTime.tryParse(text('occurred_at'))?.toLocal(),
       createdAt: DateTime.tryParse(text('created_at'))?.toLocal(),
@@ -137,6 +155,9 @@ class Expense {
   /// Set by the server's classifier, e.g. `Food`. `Unknown` when it could not
   /// decide or was unavailable.
   final String category;
+
+  /// Id of [category], as listed by `GET /api/v1/categories`.
+  final String categoryId;
 
   /// `manual`, `sms` or `notification`.
   final String source;

@@ -614,6 +614,82 @@ void main() {
     expect(find.text('Where it went'), findsOneWidget);
   });
 
+  group('changing a payment category', () {
+    Expense chai() => Expense(
+      id: 'old-1',
+      amountPaise: 12000,
+      currency: 'INR',
+      bankName: 'SBI',
+      accountType: 'savings',
+      type: 'debit',
+      vendor: 'Chai Point',
+      category: 'Food',
+      categoryId: 'cat-food',
+      occurredAt: DateTime.now(),
+    );
+
+    Future<void> pickGroceries(WidgetTester tester) async {
+      final card = find.byKey(const ValueKey('expense-old-1'));
+      await tester.ensureVisible(card);
+      await tester.tap(card);
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('category-picker')), findsOneWidget);
+      await tester.tap(find.byKey(const Key('category-option-Groceries')));
+      await tester.pumpAndSettle();
+    }
+
+    Finder tagIn(String label) => find.descendant(
+      of: find.byKey(const ValueKey('expense-old-1')),
+      matching: find.text(label),
+    );
+
+    testWidgets('tapping a payment moves it to the picked category', (
+      tester,
+    ) async {
+      final api = _FakeExpenseApi(_echo, history: [chai()]);
+      await _pump(
+        tester,
+        _app(
+          authApi: _FakeAuthApi(onLogin: () => _session),
+          expenseApi: api,
+        ),
+      );
+      await _signIn(tester);
+      expect(tagIn('Food'), findsOneWidget);
+
+      await pickGroceries(tester);
+
+      expect(api.categoryUpdates, [('old-1', 'cat-groceries')]);
+      expect(tagIn('Groceries'), findsOneWidget);
+      expect(tagIn('Food'), findsNothing);
+      expect(find.text('Moved to Groceries'), findsOneWidget);
+    });
+
+    testWidgets('a failed change keeps the old category', (tester) async {
+      final api = _FakeExpenseApi(_echo, history: [chai()])
+        ..categoryError = 'category must be one of the known categories';
+      await _pump(
+        tester,
+        _app(
+          authApi: _FakeAuthApi(onLogin: () => _session),
+          expenseApi: api,
+        ),
+      );
+      await _signIn(tester);
+
+      await pickGroceries(tester);
+
+      expect(tagIn('Food'), findsOneWidget);
+      expect(
+        find.text(
+          'Could not change category: '
+          'category must be one of the known categories',
+        ),
+        findsOneWidget,
+      );
+    });
+  });
+
   testWidgets('picking a date range reloads that range, clearing resets it', (
     tester,
   ) async {
@@ -991,6 +1067,50 @@ class _FakeExpenseApi extends ExpenseApi {
   }) async {
     created.add(input);
     return _create(accessToken, input);
+  }
+
+  /// What `GET /categories` returns.
+  var categories = const [
+    ExpenseCategory(id: 'cat-food', name: 'Food'),
+    ExpenseCategory(id: 'cat-groceries', name: 'Groceries'),
+  ];
+
+  @override
+  Future<List<ExpenseCategory>> listCategories({
+    required String accessToken,
+  }) async => categories;
+
+  /// `(expenseId, categoryId)` of every category change, in order.
+  final categoryUpdates = <(String, String)>[];
+
+  /// When set, category changes fail with this message.
+  String? categoryError;
+
+  @override
+  Future<Expense> updateCategory({
+    required String accessToken,
+    required String expenseId,
+    required String categoryId,
+  }) async {
+    categoryUpdates.add((expenseId, categoryId));
+    if (categoryError case final message?) {
+      throw ApiException(message, statusCode: 400);
+    }
+    final category = categories.firstWhere((c) => c.id == categoryId);
+    final e = history.firstWhere((e) => e.id == expenseId);
+    return Expense(
+      id: e.id,
+      amountPaise: e.amountPaise,
+      currency: e.currency,
+      bankName: e.bankName,
+      accountType: e.accountType,
+      type: e.type,
+      vendor: e.vendor,
+      category: category.name,
+      categoryId: category.id,
+      source: e.source,
+      occurredAt: e.occurredAt,
+    );
   }
 
   /// The `(startDate, endDate)` of every list request, in order.

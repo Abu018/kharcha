@@ -82,6 +82,9 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
   List<Expense> _expenses = const [];
   SpendingChart? _monthlyChart;
 
+  /// What a payment can be moved to; empty until loaded.
+  List<ExpenseCategory> _categories = const [];
+
   /// Groups created since signing in, newest first.
   List<ExpenseGroup> _groups = const [];
 
@@ -196,8 +199,22 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
   void _startSession() {
     unawaited(_loadExpenses());
     unawaited(_loadChart());
+    unawaited(_loadCategories());
     unawaited(_initAutoDetect());
     unawaited(_initPush());
+  }
+
+  Future<void> _loadCategories() async {
+    try {
+      final categories = await _authed(
+        (token) => _expenseApi.listCategories(accessToken: token),
+      );
+      if (mounted && categories != null && _session != null) {
+        setState(() => _categories = categories);
+      }
+    } on ApiException {
+      // Tried again on the next refresh.
+    }
   }
 
   /// Gets this device's FCM token and links it to the signed-in user, then
@@ -218,9 +235,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
         message.body,
       ].where((s) => s.isNotEmpty).join(' · ');
       if (text.isNotEmpty) {
-        _messengerKey.currentState?.showSnackBar(
-          SnackBar(content: Text(text)),
-        );
+        _messengerKey.currentState?.showSnackBar(SnackBar(content: Text(text)));
       }
     }, onError: (_) {});
   }
@@ -270,6 +285,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
       _loginNotice = notice;
       _expenses = const [];
       _monthlyChart = null;
+      _categories = const [];
       _groups = const [];
       _range = null;
       _loadError = null;
@@ -576,7 +592,12 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
   }
 
   Future<void> _refresh() async {
-    await Future.wait([_loadExpenses(), _loadChart(), _sync()]);
+    await Future.wait([
+      _loadExpenses(),
+      _loadChart(),
+      _sync(),
+      if (_categories.isEmpty) _loadCategories(),
+    ]);
   }
 
   Future<void> _addExpense(ExpenseInput input) async {
@@ -586,6 +607,22 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     if (saved != null) {
       setState(() => _merge([saved]));
       unawaited(_loadChart());
+    }
+  }
+
+  Future<void> _changeCategory(
+    Expense expense,
+    ExpenseCategory category,
+  ) async {
+    final updated = await _authed(
+      (token) => _expenseApi.updateCategory(
+        accessToken: token,
+        expenseId: expense.id,
+        categoryId: category.id,
+      ),
+    );
+    if (updated != null && mounted) {
+      setState(() => _merge([updated]));
     }
   }
 
@@ -700,6 +737,8 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
                 onEnableAutoDetect: _enableAutoDetect,
                 onEnableNotifications: _enableNotifications,
                 monthlyChart: _monthlyChart,
+                categories: _categories,
+                onChangeCategory: _changeCategory,
               ),
               groups: GroupsScreen(
                 groups: _groups,

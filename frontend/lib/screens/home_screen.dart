@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../api/api_client.dart';
 import '../api/profile_api.dart';
 import '../models/auth_session.dart';
 import '../models/expense.dart';
@@ -47,6 +48,8 @@ class HomeScreen extends StatefulWidget {
     this.onEnableAutoDetect,
     this.onEnableNotifications,
     this.monthlyChart,
+    this.categories = const [],
+    this.onChangeCategory,
   });
 
   final AuthSession session;
@@ -79,6 +82,14 @@ class HomeScreen extends StatefulWidget {
 
   /// Spending per month of the current year; hidden while `null`.
   final SpendingChart? monthlyChart;
+
+  /// What a payment can be moved to, from the server.
+  final List<ExpenseCategory> categories;
+
+  /// Moves a payment to another category. Spent payments can be tapped to
+  /// pick one when this is set and [categories] is not empty.
+  final Future<void> Function(Expense expense, ExpenseCategory category)?
+  onChangeCategory;
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -175,6 +186,66 @@ class _HomeScreenState extends State<HomeScreen> {
     );
     if (picked != null) {
       onChanged(picked);
+    }
+  }
+
+  Future<void> _changeCategory(Expense expense) async {
+    final onChange = widget.onChangeCategory;
+    if (onChange == null) {
+      return;
+    }
+    final picked = await showModalBottomSheet<ExpenseCategory>(
+      context: context,
+      backgroundColor: AppColors.surface,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (context) => SafeArea(
+        child: ListView(
+          key: const Key('category-picker'),
+          shrinkWrap: true,
+          padding: const EdgeInsets.only(bottom: 12),
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+              child: Text(
+                'Category for ${expense.title}',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+            ),
+            for (final category in widget.categories)
+              ListTile(
+                key: Key('category-option-${category.name}'),
+                leading: CircleAvatar(
+                  backgroundColor: AppColors.category(category.name),
+                  child: Icon(
+                    _categoryIcon(category.name),
+                    color: AppColors.ink,
+                    size: 20,
+                  ),
+                ),
+                title: Text(category.name),
+                trailing: category.id == expense.categoryId
+                    ? const Icon(Icons.check_rounded, color: AppColors.lime)
+                    : null,
+                onTap: () => Navigator.of(context).pop(category),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (picked == null || picked.id == expense.categoryId || !mounted) {
+      return;
+    }
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await onChange(expense, picked);
+      messenger.showSnackBar(
+        SnackBar(content: Text('Moved to ${picked.name}')),
+      );
+    } on ApiException catch (error) {
+      messenger.showSnackBar(
+        SnackBar(content: Text('Could not change category: ${error.message}')),
+      );
     }
   }
 
@@ -300,7 +371,15 @@ class _HomeScreenState extends State<HomeScreen> {
           )
         else
           for (final expense in visible) ...[
-            _ExpenseCard(expense: expense),
+            _ExpenseCard(
+              expense: expense,
+              onTap:
+                  widget.onChangeCategory == null ||
+                      widget.categories.isEmpty ||
+                      expense.isCredit
+                  ? null
+                  : () => _changeCategory(expense),
+            ),
             const SizedBox(height: 10),
           ],
       ],
@@ -796,107 +875,117 @@ class _CategoryBreakdown extends StatelessWidget {
   }
 }
 
+IconData _categoryIcon(String category) => switch (category.toLowerCase()) {
+  'food' => Icons.restaurant_rounded,
+  'groceries' => Icons.local_grocery_store_rounded,
+  'transport' => Icons.directions_car_rounded,
+  'shopping' => Icons.shopping_bag_rounded,
+  'bills' => Icons.receipt_long_rounded,
+  'entertainment' => Icons.movie_rounded,
+  'sports' => Icons.sports_soccer_rounded,
+  'health' => Icons.local_hospital_rounded,
+  'transfers' => Icons.person_rounded,
+  _ => Icons.payments_rounded,
+};
+
 class _ExpenseCard extends StatelessWidget {
-  const _ExpenseCard({required this.expense});
+  const _ExpenseCard({required this.expense, this.onTap});
 
   final Expense expense;
 
-  static IconData _icon(Expense e) {
-    if (e.isCredit) {
-      return Icons.south_west_rounded;
-    }
-    return switch (e.category.toLowerCase()) {
-      'food' => Icons.restaurant_rounded,
-      'groceries' => Icons.local_grocery_store_rounded,
-      'transport' => Icons.directions_car_rounded,
-      'shopping' => Icons.shopping_bag_rounded,
-      'bills' => Icons.receipt_long_rounded,
-      'entertainment' => Icons.movie_rounded,
-      'health' => Icons.local_hospital_rounded,
-      'transfers' => Icons.person_rounded,
-      _ => Icons.payments_rounded,
-    };
-  }
+  /// Opens the category picker; `null` for payments that cannot be moved.
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
     final e = expense;
     final account = expenseAccountTypes[e.accountType] ?? e.accountType;
     final accent = e.isCredit ? AppColors.mint : AppColors.category(e.category);
+    final icon = e.isCredit
+        ? Icons.south_west_rounded
+        : _categoryIcon(e.category);
 
-    return Container(
+    return Material(
       key: ValueKey('expense-${e.id}'),
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: AppColors.card,
-        borderRadius: BorderRadius.circular(22),
+      color: AppColors.card,
+      borderRadius: BorderRadius.circular(22),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: _content(e, account, accent, icon),
+        ),
       ),
-      child: Row(
-        children: [
-          Container(
-            width: 46,
-            height: 46,
-            decoration: BoxDecoration(color: accent, shape: BoxShape.circle),
-            child: Icon(_icon(e), color: AppColors.ink, size: 22),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  e.title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: AppColors.ink,
-                    fontWeight: FontWeight.w700,
-                    fontSize: 15,
-                  ),
-                ),
-                const SizedBox(height: 6),
-                Wrap(
-                  spacing: 6,
-                  runSpacing: 4,
-                  children: [
-                    if (e.category.isNotEmpty && !e.isCredit)
-                      _Tag(label: e.category, color: accent),
-                    if (e.isAutoDetected)
-                      const _Tag(
-                        label: 'Auto',
-                        color: AppColors.ink,
-                        textColor: AppColors.lime,
-                      ),
-                    _Tag(
-                      label: '${e.bankName} · $account',
-                      color: const Color(0xFFE6E5EC),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 10),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
+    );
+  }
+
+  Widget _content(Expense e, String account, Color accent, IconData icon) {
+    return Row(
+      children: [
+        Container(
+          width: 46,
+          height: 46,
+          decoration: BoxDecoration(color: accent, shape: BoxShape.circle),
+          child: Icon(icon, color: AppColors.ink, size: 22),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                '${e.isCredit ? '+' : '-'}${e.formattedAmount}',
-                style: TextStyle(
-                  color: e.isCredit ? const Color(0xFF13804B) : AppColors.ink,
-                  fontWeight: FontWeight.w800,
+                e.title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: AppColors.ink,
+                  fontWeight: FontWeight.w700,
                   fontSize: 15,
                 ),
               ),
-              const SizedBox(height: 4),
-              Text(
-                _dateLabel(e.when),
-                style: const TextStyle(color: Color(0xFF7A7A86), fontSize: 12),
+              const SizedBox(height: 6),
+              Wrap(
+                spacing: 6,
+                runSpacing: 4,
+                children: [
+                  if (e.category.isNotEmpty && !e.isCredit)
+                    _Tag(label: e.category, color: accent),
+                  if (e.isAutoDetected)
+                    const _Tag(
+                      label: 'Auto',
+                      color: AppColors.ink,
+                      textColor: AppColors.lime,
+                    ),
+                  _Tag(
+                    label: '${e.bankName} · $account',
+                    color: const Color(0xFFE6E5EC),
+                  ),
+                ],
               ),
             ],
           ),
-        ],
-      ),
+        ),
+        const SizedBox(width: 10),
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            Text(
+              '${e.isCredit ? '+' : '-'}${e.formattedAmount}',
+              style: TextStyle(
+                color: e.isCredit ? const Color(0xFF13804B) : AppColors.ink,
+                fontWeight: FontWeight.w800,
+                fontSize: 15,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              _dateLabel(e.when),
+              style: const TextStyle(color: Color(0xFF7A7A86), fontSize: 12),
+            ),
+          ],
+        ),
+      ],
     );
   }
 }

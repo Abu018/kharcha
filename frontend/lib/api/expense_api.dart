@@ -113,6 +113,45 @@ class ExpenseApi {
     ];
   }
 
+  /// `GET /api/v1/categories`: the categories a payment can be moved to.
+  Future<List<ExpenseCategory>> listCategories({
+    required String accessToken,
+  }) async {
+    final envelope = await _api.send(
+      'GET',
+      '/api/v1/categories',
+      accessToken: accessToken,
+    );
+    final data = envelope['data'];
+    if (data is! List) {
+      return const [];
+    }
+    return [
+      for (final item in data)
+        if (item is Map<String, dynamic>) ExpenseCategory.fromJson(item),
+    ];
+  }
+
+  /// `PUT /api/v1/expenses/{expenseId}/category`. [categoryId] comes from
+  /// [listCategories]. Returns the updated transaction.
+  Future<Expense> updateCategory({
+    required String accessToken,
+    required String expenseId,
+    required String categoryId,
+  }) async {
+    final envelope = await _api.send(
+      'PUT',
+      '/api/v1/expenses/$expenseId/category',
+      accessToken: accessToken,
+      body: {'category_id': categoryId},
+    );
+    final data = envelope['data'];
+    if (data is! Map<String, dynamic>) {
+      throw const ApiException('Update response did not include the expense.');
+    }
+    return Expense.fromJson(data);
+  }
+
   /// `GET /api/v1/groups/{groupId}/expenses`, newest first.
   Future<List<GroupExpense>> listGroupExpenses({
     required String accessToken,
