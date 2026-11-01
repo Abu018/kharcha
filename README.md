@@ -236,13 +236,6 @@ docs/                        API reference, analytics design, roadmap
 Makefile                     tasks for both projects
 ```
 
-## Security
-
-- Secrets live only in `backend/.env`, which is git-ignored.
-- The app never stores the user's password, only a revocable refresh token
-  in the platform keystore.
-- Please report security issues privately rather than in public issues.
-
 ## Contributing
 
 Issues and pull requests are welcome!
