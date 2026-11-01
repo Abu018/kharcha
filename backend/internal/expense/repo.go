@@ -53,6 +53,9 @@ type Repo interface {
 	MonthlySpent(userID uuid.UUID, year int) ([]Series, error)
 	HighestSpendingAmount(userID uuid.UUID, year int) (int64, error)
 	CreateGroup(userID uuid.UUID, GroupMembers []string, GroupName string) (string, error)
+	// ListGroups returns the groups the user owns or is a member of, newest
+	// first, with the owner (User) and Members.User preloaded.
+	ListGroups(userID uuid.UUID) ([]models.Group, error)
 	ListExpense(userID, groupID uuid.UUID) ([]models.Expense, error)
 	AddExpenses(userID, groupID uuid.UUID, amount int64, description string) (models.Expense, error)
 }

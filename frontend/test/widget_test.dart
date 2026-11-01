@@ -1135,6 +1135,12 @@ class _FakeExpenseApi extends ExpenseApi {
     return _create(accessToken, input);
   }
 
+  @override
+  Future<List<ExpenseGroup>> listGroups({
+    required String accessToken,
+    required String currentUserId,
+  }) async => const [];
+
   /// What `GET /categories` returns.
   var categories = const [
     ExpenseCategory(id: 'cat-food', name: 'Food'),

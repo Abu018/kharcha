@@ -1,0 +1,603 @@
+openapi: 3.0.3
+info:
+  title: Kharcha API
+  version: "1.0"
+  description: |
+    Expense tracking: payments detected from SMS and notifications, categories,
+    monthly spending and shared group expenses.
+
+    **Try it:** call `POST /api/v1/login` below. The returned `access_token` is
+    applied to every other request automatically (or paste it into
+    **Authorize**). Tokens expire after 5 minutes; use `/api/v1/auth/refresh`.
+
+    Every response uses the same envelope:
+    `{"success": bool, "message": string, "data": ...}`.
+    Amounts are in **paise** (₹1 = 100).
+servers:
+  - url: /
+security:
+  - bearerAuth: []
+tags:
+  - name: Auth
+    description: Accounts and tokens (Keycloak)
+  - name: Profile
+    description: The signed-in user and people search
+  - name: Transactions
+    description: Payments, filters and the monthly chart
+  - name: Categories
+    description: What a payment can be filed under
+  - name: Groups
+    description: Shared expenses with friends
+  - name: Notifications
+    description: Push notification setup
+
+paths:
+  /api/v1/register:
+    post:
+      tags: [Auth]
+      summary: Create an account
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RegisterInput" }
+      responses:
+        "200": { $ref: "#/components/responses/Ok" }
+        "400": { $ref: "#/components/responses/Error" }
+        "409":
+          description: "`email already registered`"
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Envelope" }
+        "500": { $ref: "#/components/responses/Error" }
+
+  /api/v1/login:
+    post:
+      tags: [Auth]
+      summary: Sign in with email and password
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email, example: amit@gmail.com }
+                password: { type: string, format: password }
+      responses:
+        "200":
+          description: Signed in
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - properties:
+                      data: { $ref: "#/components/schemas/LoginResult" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401":
+          description: "`invalid email or password`"
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Envelope" }
+
+  /api/v1/auth/refresh:
+    post:
+      tags: [Auth]
+      summary: Get a new access token
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refresh_token]
+              properties:
+                refresh_token: { type: string }
+      responses:
+        "200":
+          description: New tokens
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - properties:
+                      data: { $ref: "#/components/schemas/Token" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401":
+          description: "`invalid or expired refresh token`"
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Envelope" }
+        "502": { $ref: "#/components/responses/Error" }
+
+  /api/v1/profile:
+    get:
+      tags: [Profile]
+      summary: The signed-in user's profile
+      responses:
+        "200":
+          description: Profile
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - properties:
+                      data: { $ref: "#/components/schemas/Profile" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/Error" }
+    put:
+      tags: [Profile]
+      summary: Update the profile (omitted fields keep their value)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                first_name: { type: string, maxLength: 50 }
+                last_name: { type: string, maxLength: 50 }
+                age: { type: integer, minimum: 1, maximum: 120 }
+                salary: { type: integer, minimum: 0, description: Monthly salary in whole rupees }
+      responses:
+        "200":
+          description: Updated profile
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - properties:
+                      data: { $ref: "#/components/schemas/Profile" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /api/v1/users:
+    get:
+      tags: [Profile]
+      summary: Find people to add to a group
+      parameters:
+        - name: q
+          in: query
+          description: Matches name or email
+          schema: { type: string }
+      responses:
+        "200":
+          description: Up to 50 users, not including the caller
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - properties:
+                      data:
+                        type: array
+                        items: { $ref: "#/components/schemas/User" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /api/v1/expense:
+    post:
+      tags: [Transactions]
+      summary: Save a payment
+      description: |
+        The category is decided by the server. Sending the same `source_ref`
+        twice returns `200 transaction already recorded` instead of a duplicate.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TransactionInput" }
+      responses:
+        "201":
+          description: "`transaction saved successfully`"
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - properties:
+                      data: { $ref: "#/components/schemas/Transaction" }
+        "200": { $ref: "#/components/responses/Ok" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /api/v1/expenses:
+    get:
+      tags: [Transactions]
+      summary: List payments, newest first
+      parameters:
+        - name: start_date
+          in: query
+          description: First day (inclusive, India time)
+          schema: { type: string, format: date, example: "2026-10-01" }
+        - name: end_date
+          in: query
+          description: Last day (inclusive, India time)
+          schema: { type: string, format: date, example: "2026-10-31" }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 100, maximum: 500 }
+      responses:
+        "200":
+          description: Payments
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - properties:
+                      data:
+                        type: array
+                        items: { $ref: "#/components/schemas/Transaction" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /api/v1/expenses/monthly:
+    get:
+      tags: [Transactions]
+      summary: Spending per month of a year
+      parameters:
+        - name: year
+          in: query
+          description: Defaults to the current year
+          schema: { type: integer, example: 2026 }
+      responses:
+        "200":
+          description: Chart, Jan to Dec
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - properties:
+                      data: { $ref: "#/components/schemas/Chart" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /api/v1/expenses/{id}/category:
+    put:
+      tags: [Transactions]
+      summary: Move a payment to another category
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [category_id]
+              properties:
+                category_id:
+                  type: string
+                  format: uuid
+                  description: An `id` from `GET /api/v1/categories`
+      responses:
+        "200":
+          description: "`category updated`"
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - properties:
+                      data: { $ref: "#/components/schemas/Transaction" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404":
+          description: "`expense not found` (missing, or another user's)"
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Envelope" }
+
+  /api/v1/categories:
+    get:
+      tags: [Categories]
+      summary: Categories a payment can be moved to
+      description: Sorted by name. `Unknown` and `Income` are set by the server and left out.
+      responses:
+        "200":
+          description: Categories
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - properties:
+                      data:
+                        type: array
+                        items: { $ref: "#/components/schemas/Category" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /api/v1/create-group:
+    post:
+      tags: [Groups]
+      summary: Create a group
+      description: The caller becomes the owner; `userIDs` are added as members.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, userIDs]
+              properties:
+                name: { type: string, example: Roommates }
+                userIDs:
+                  type: array
+                  minItems: 1
+                  items: { type: string, format: uuid }
+      responses:
+        "201":
+          description: "`Group created`"
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - properties:
+                      data:
+                        type: object
+                        properties:
+                          id: { type: string, format: uuid }
+                          name: { type: string }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /api/v1/groups:
+    get:
+      tags: [Groups]
+      summary: Groups the caller created or was added to
+      description: Newest first. `members` lists everyone, owner first, including the caller.
+      responses:
+        "200":
+          description: Groups
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - properties:
+                      data:
+                        type: array
+                        items: { $ref: "#/components/schemas/Group" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /api/v1/groups/{groupID}/expenses:
+    parameters:
+      - name: groupID
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      tags: [Groups]
+      summary: Expenses shared in a group
+      responses:
+        "200":
+          description: Expenses, newest first
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - properties:
+                      data:
+                        type: array
+                        items: { $ref: "#/components/schemas/GroupExpense" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404":
+          description: "`group not found` (or the caller is not in it)"
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Envelope" }
+    post:
+      tags: [Groups]
+      summary: Add an expense to a group
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [amount, description]
+              properties:
+                amount: { type: integer, description: Paise, example: 125000 }
+                description: { type: string, example: Dinner }
+      responses:
+        "201":
+          description: "`expense saved`"
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - properties:
+                      data: { $ref: "#/components/schemas/GroupExpense" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404":
+          description: "`group not found`"
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Envelope" }
+
+  /api/v1/token:
+    post:
+      tags: [Notifications]
+      summary: Register this device's FCM token for push notifications
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token]
+              properties:
+                token: { type: string }
+      responses:
+        "201": { $ref: "#/components/responses/Ok" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  responses:
+    Ok:
+      description: Success
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Envelope" }
+    Error:
+      description: Failed; `message` says why
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Envelope" }
+    Unauthorized:
+      description: "`missing token` / `invalid token`"
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Envelope" }
+
+  schemas:
+    Envelope:
+      type: object
+      properties:
+        success: { type: boolean }
+        message: { type: string }
+        data: {}
+
+    RegisterInput:
+      type: object
+      required: [user_name, first_name, last_name, email, password]
+      properties:
+        user_name: { type: string, minLength: 2, maxLength: 50 }
+        first_name: { type: string, minLength: 2, maxLength: 50 }
+        last_name: { type: string, maxLength: 50 }
+        email: { type: string, format: email }
+        password: { type: string, format: password, minLength: 8, maxLength: 72 }
+
+    Token:
+      type: object
+      properties:
+        access_token: { type: string }
+        refresh_token: { type: string }
+        token_type: { type: string, example: Bearer }
+        expires_in: { type: integer, example: 300 }
+
+    LoginResult:
+      allOf:
+        - $ref: "#/components/schemas/Token"
+        - type: object
+          properties:
+            refresh_expires_in: { type: integer }
+            user_id: { type: string, format: uuid }
+            user_name: { type: string }
+
+    User:
+      type: object
+      properties:
+        user_id: { type: string, format: uuid }
+        email: { type: string }
+        first_name: { type: string }
+        last_name: { type: string }
+
+    Profile:
+      allOf:
+        - $ref: "#/components/schemas/User"
+        - type: object
+          properties:
+            age: { type: integer, nullable: true }
+            salary: { type: integer, nullable: true, description: "Monthly, whole rupees" }
+
+    TransactionInput:
+      type: object
+      required: [amount_paise, currency, bank_name, account_type, type]
+      properties:
+        amount_paise: { type: integer, minimum: 1, example: 45000 }
+        currency: { type: string, minLength: 3, maxLength: 3, example: INR }
+        bank_name: { type: string, example: HDFC }
+        account_type: { type: string, enum: [savings, current, credit_card, upi_wallet] }
+        type: { type: string, enum: [debit, credit] }
+        vendor: { type: string, example: Swiggy }
+        vendor_upi: { type: string, example: swiggy@icici }
+        occurred_at: { type: string, format: date-time, description: Defaults to now }
+        source: { type: string, enum: [manual, sms, notification], default: manual }
+        source_ref: { type: string, maxLength: 100, description: "Client ID of the SMS/notification, used to skip duplicates" }
+
+    Transaction:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        amount_paise: { type: integer }
+        currency: { type: string }
+        bank_name: { type: string }
+        account_type: { type: string }
+        type: { type: string, enum: [debit, credit] }
+        vendor: { type: string }
+        vendor_upi: { type: string }
+        category: { type: string, example: Food }
+        category_id: { type: string, format: uuid }
+        occurred_at: { type: string, format: date-time }
+        source: { type: string }
+        source_ref: { type: string }
+        user_id: { type: string, format: uuid }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    Category:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        category: { type: string, example: Groceries }
+
+    Chart:
+      type: object
+      properties:
+        title: { type: string }
+        xAxis: { type: object, properties: { label: { type: string } } }
+        yAxis: { type: object, properties: { label: { type: string } } }
+        max_amount: { type: integer }
+        series:
+          type: array
+          items:
+            type: object
+            properties:
+              x: { type: string, example: Jan }
+              y: { type: integer, description: Paise }
+
+    Group:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        owner_id: { type: string, format: uuid }
+        members:
+          type: array
+          items: { $ref: "#/components/schemas/User" }
+        created_at: { type: string, format: date-time }
+
+    GroupExpense:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        group_id: { type: string, format: uuid }
+        name: { type: string }
+        amount: { type: integer, description: Paise }
+        paid_by: { type: string, format: uuid }
+        description: { type: string }
+        created_at: { type: string, format: date-time }

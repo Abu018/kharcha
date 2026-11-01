@@ -2,6 +2,7 @@ package routes
 
 import (
 	"my_app/backend/cmd/middleware"
+	"my_app/backend/internal/apidocs"
 	"my_app/backend/internal/utils"
 
 	"github.com/go-chi/chi/v5"
@@ -11,6 +12,7 @@ import (
 func SetupRoutes(r *chi.Mux, db *gorm.DB, cfg *utils.Config) {
 	r.Use(middleware.CORS(cfg.CORSOrigins))
 	r.Use(middleware.Middleware)
+	apidocs.Register(r)
 	RegisterExpenseRoutes(r, db, cfg)
 	RegisterNotificationRoutes(r, db, cfg)
 }

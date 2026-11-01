@@ -17,7 +17,11 @@ class GroupsScreen extends StatefulWidget {
     required this.onAddGroupExpense,
     this.currentUserId = '',
     this.groups = const [],
+    this.onRefresh,
   });
+
+  /// Reloads [groups] when the list is pulled down.
+  final Future<void> Function()? onRefresh;
 
   final Future<void> Function(String name, List<AppUser> members) onCreateGroup;
   final Future<List<AppUser>> Function(String query) onSearchUsers;
@@ -74,6 +78,36 @@ class _GroupsScreenState extends State<GroupsScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final groups = widget.groups;
+    final onRefresh = widget.onRefresh;
+
+    final list = ListView(
+      padding: const EdgeInsets.fromLTRB(20, 12, 20, 110),
+      physics: const AlwaysScrollableScrollPhysics(),
+      children: [
+        Text('Groups', style: theme.textTheme.headlineMedium),
+        const SizedBox(height: 4),
+        Text(
+          'Split expenses with friends, flatmates and family.',
+          style: theme.textTheme.bodyMedium?.copyWith(color: AppColors.muted),
+        ),
+        const SizedBox(height: 20),
+        _GroupsBanner(count: groups.length, onCreate: _openCreate),
+        const SizedBox(height: 28),
+        Text('Your groups', style: theme.textTheme.titleLarge),
+        const SizedBox(height: 12),
+        if (groups.isEmpty)
+          const _EmptyGroups()
+        else
+          for (final (index, group) in groups.indexed) ...[
+            _GroupCard(
+              group: group,
+              color: groupColor(groups.length - 1 - index),
+              onTap: () => _openGroup(group),
+            ),
+            const SizedBox(height: 10),
+          ],
+      ],
+    );
 
     return Scaffold(
       floatingActionButton: FloatingActionButton.extended(
@@ -84,35 +118,9 @@ class _GroupsScreenState extends State<GroupsScreen> {
         label: const Text('New group'),
       ),
       body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(20, 12, 20, 110),
-          children: [
-            Text('Groups', style: theme.textTheme.headlineMedium),
-            const SizedBox(height: 4),
-            Text(
-              'Split expenses with friends, flatmates and family.',
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: AppColors.muted,
-              ),
-            ),
-            const SizedBox(height: 20),
-            _GroupsBanner(count: groups.length, onCreate: _openCreate),
-            const SizedBox(height: 28),
-            Text('Your groups', style: theme.textTheme.titleLarge),
-            const SizedBox(height: 12),
-            if (groups.isEmpty)
-              const _EmptyGroups()
-            else
-              for (final (index, group) in groups.indexed) ...[
-                _GroupCard(
-                  group: group,
-                  color: groupColor(groups.length - 1 - index),
-                  onTap: () => _openGroup(group),
-                ),
-                const SizedBox(height: 10),
-              ],
-          ],
-        ),
+        child: onRefresh == null
+            ? list
+            : RefreshIndicator(onRefresh: onRefresh, child: list),
       ),
     );
   }

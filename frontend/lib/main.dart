@@ -200,8 +200,24 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     unawaited(_loadExpenses());
     unawaited(_loadChart());
     unawaited(_loadCategories());
+    unawaited(_loadGroups());
     unawaited(_initAutoDetect());
     unawaited(_initPush());
+  }
+
+  Future<void> _loadGroups() async {
+    final userId = _session?.userId ?? '';
+    try {
+      final groups = await _authed(
+        (token) =>
+            _expenseApi.listGroups(accessToken: token, currentUserId: userId),
+      );
+      if (mounted && groups != null && _session != null) {
+        setState(() => _groups = groups);
+      }
+    } on ApiException {
+      // Groups already shown stay; tried again on the next refresh.
+    }
   }
 
   Future<void> _loadCategories() async {
@@ -596,6 +612,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
       _loadExpenses(),
       _loadChart(),
       _sync(),
+      _loadGroups(),
       if (_categories.isEmpty) _loadCategories(),
     ]);
   }
@@ -747,6 +764,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
                 onSearchUsers: _searchUsers,
                 onListGroupExpenses: _listGroupExpenses,
                 onAddGroupExpense: _addGroupExpense,
+                onRefresh: _loadGroups,
               ),
             ),
     );

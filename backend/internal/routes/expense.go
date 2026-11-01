@@ -48,6 +48,7 @@ func RegisterExpenseRoutes(
 			p.Get("/expenses", expenseHandler.List)
 			p.Get("/expenses/monthly", expenseHandler.Monthly)
 			p.Post("/create-group", expenseHandler.CreateGroup)
+			p.Get("/groups", expenseHandler.ListGroups)
 			p.Get("/groups/{groupID}/expenses", expenseHandler.ListExpense)
 			p.Post("/groups/{groupID}/expenses", expenseHandler.AddExpenses)
 			p.Put("/expenses/{id}/category", expenseHandler.UpdateCategory)

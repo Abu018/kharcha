@@ -315,6 +315,53 @@ func (s *Service) CreateGroup(userID uuid.UUID, GroupMembers []string, name stri
 	return s.repo.CreateGroup(userID, GroupMembers, name)
 }
 
+// GroupMember is one person in a group, as returned by ListGroups.
+type GroupMember struct {
+	UserID    uuid.UUID `json:"user_id"`
+	Email     string    `json:"email"`
+	FirstName string    `json:"first_name"`
+	LastName  string    `json:"last_name"`
+}
+
+// Group is a group the user can see. Members lists everyone in it, owner
+// first, including the user asking.
+type Group struct {
+	ID        uuid.UUID     `json:"id"`
+	Name      string        `json:"name"`
+	OwnerID   uuid.UUID     `json:"owner_id"`
+	Members   []GroupMember `json:"members"`
+	CreatedAt time.Time     `json:"created_at"`
+}
+
+func toGroupMember(u models.User) GroupMember {
+	return GroupMember{UserID: u.ID, Email: u.Email, FirstName: u.FirstName, LastName: u.LastName}
+}
+
+func (s *Service) ListGroups(userID uuid.UUID) ([]Group, error) {
+	rows, err := s.repo.ListGroups(userID)
+	if err != nil {
+		return nil, err
+	}
+	groups := make([]Group, 0, len(rows))
+	for _, row := range rows {
+		members := make([]GroupMember, 0, len(row.Members)+1)
+		members = append(members, toGroupMember(row.User))
+		for _, m := range row.Members {
+			if m.UserID != row.UserID {
+				members = append(members, toGroupMember(m.User))
+			}
+		}
+		groups = append(groups, Group{
+			ID:        row.ID,
+			Name:      row.Name,
+			OwnerID:   row.UserID,
+			Members:   members,
+			CreatedAt: row.CreatedAt,
+		})
+	}
+	return groups, nil
+}
+
 type Expense struct {
 	ID          string    `json:"id"`
 	GroupID     string    `json:"group_id"`

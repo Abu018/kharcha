@@ -256,6 +256,27 @@ func (h *ExpenseHandler) CreateGroup(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (h *ExpenseHandler) ListGroups(w http.ResponseWriter, r *http.Request) {
+	userID, ok := userIDFrom(w, r)
+	if !ok {
+		return
+	}
+	groups, err := h.expense.ListGroups(userID)
+	if err != nil {
+		log.Printf("list groups: %v", err)
+		response.JSON(w, http.StatusInternalServerError, response.Response{
+			Success: false,
+			Message: "failed to load groups",
+		})
+		return
+	}
+	response.JSON(w, http.StatusOK, response.Response{
+		Success: true,
+		Message: "groups",
+		Data:    groups,
+	})
+}
+
 func groupIDFrom(w http.ResponseWriter, r *http.Request) (uuid.UUID, bool) {
 	groupID, err := uuid.Parse(chi.URLParam(r, "groupID"))
 	if err != nil {

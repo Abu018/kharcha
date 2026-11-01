@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Kharcha API</title>
+  <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css">
+  <link rel="stylesheet" href="/docs/theme.css">
+</head>
+<body>
+  <header class="kh-header">
+    <span class="kh-logo" aria-hidden="true"></span>
+    <div>
+      <h1>Kharcha API <span class="kh-version">v1</span></h1>
+      <p>Sign in with <code>POST /api/v1/login</code>; the token is used for every other call.</p>
+      <p class="kh-links"><a href="/docs/openapi.yaml">openapi.yaml</a></p>
+    </div>
+  </header>
+  <div id="swagger-ui"></div>
+  <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
+  <script>
+    // Login and refresh responses carry an access token; apply it so the
+    // protected endpoints work without copying it into Authorize.
+    const tokenPaths = ['/api/v1/login', '/api/v1/auth/refresh'];
+    const ui = SwaggerUIBundle({
+      url: '/docs/openapi.yaml',
+      dom_id: '#swagger-ui',
+      deepLinking: true,
+      persistAuthorization: true,
+      displayRequestDuration: true,
+      docExpansion: 'list',
+      defaultModelsExpandDepth: 0,
+      tryItOutEnabled: true,
+      syntaxHighlight: { theme: 'monokai' },
+      responseInterceptor: (res) => {
+        try {
+          const path = new URL(res.url, location.href).pathname;
+          const token = res.ok && tokenPaths.includes(path) && res.body?.data?.access_token;
+          if (token) {
+            ui.preauthorizeApiKey('bearerAuth', token);
+          }
+        } catch (_) {}
+        return res;
+      },
+    });
+  </script>
+</body>
+</html>

@@ -9,10 +9,31 @@ class ExpenseGroup {
     this.members = const [],
   });
 
+  /// From `GET /api/v1/groups`. [currentUserId] is left out of [members].
+  factory ExpenseGroup.fromJson(
+    Map<String, dynamic> json, {
+    required String currentUserId,
+  }) {
+    final people = json['members'];
+    return ExpenseGroup(
+      id: json['id'] as String? ?? '',
+      name: json['name'] as String? ?? '',
+      members: [
+        if (people is List)
+          for (final person in people)
+            if (person is Map<String, dynamic>)
+              if (AppUser.fromJson(person) case final user
+                  when user.id != currentUserId)
+                user,
+      ],
+    );
+  }
+
   final String id;
   final String name;
 
-  /// Users added when the group was created, not counting its creator.
+  /// Everyone else in the group, including its creator when that is not the
+  /// signed-in user.
   final List<AppUser> members;
 }
 

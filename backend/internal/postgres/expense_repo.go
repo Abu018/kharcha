@@ -193,6 +193,19 @@ func (r *ExpenseRepo) CreateGroup(userID uuid.UUID, GroupMembers []string, Group
 	return groupID.ID.String(), nil
 }
 
+func (r *ExpenseRepo) ListGroups(userID uuid.UUID) ([]models.Group, error) {
+	var groups []models.Group
+	err := r.db.
+		Preload("User").
+		Preload("Members", func(db *gorm.DB) *gorm.DB { return db.Order("created_at") }).
+		Preload("Members.User").
+		Where("user_id = ? OR id IN (?)", userID,
+			r.db.Model(&models.GroupMembers{}).Select("group_id").Where("user_id = ?", userID)).
+		Order("created_at DESC").
+		Find(&groups).Error
+	return groups, err
+}
+
 func (r *ExpenseRepo) inGroup(userID, groupID uuid.UUID) (bool, error) {
 	var n int64
 	err := r.db.Raw(`

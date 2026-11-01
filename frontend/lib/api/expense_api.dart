@@ -64,6 +64,28 @@ class ExpenseApi {
     return ExpenseGroup(id: id, name: name, members: members);
   }
 
+  /// `GET /api/v1/groups`: groups the user created or was added to, newest
+  /// first.
+  Future<List<ExpenseGroup>> listGroups({
+    required String accessToken,
+    required String currentUserId,
+  }) async {
+    final envelope = await _api.send(
+      'GET',
+      '/api/v1/groups',
+      accessToken: accessToken,
+    );
+    final data = envelope['data'];
+    if (data is! List) {
+      return const [];
+    }
+    return [
+      for (final item in data)
+        if (item is Map<String, dynamic>)
+          ExpenseGroup.fromJson(item, currentUserId: currentUserId),
+    ];
+  }
+
   /// `GET /api/v1/expenses/monthly`: how much was spent in each month of
   /// [year] (the current year when omitted), Jan to Dec.
   Future<SpendingChart> monthlySpending({

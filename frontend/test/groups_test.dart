@@ -129,6 +129,53 @@ void main() {
     expect(group.members.single.id, _amit.id);
   });
 
+  test('listGroups reads groups and leaves the signed-in user out', () async {
+    late Uri url;
+    final api = ExpenseApi(
+      baseUrl: 'http://api',
+      client: MockClient((request) async {
+        url = request.url;
+        return http.Response(
+          jsonEncode({
+            'success': true,
+            'message': 'groups',
+            'data': [
+              {
+                'id': 'group-1',
+                'name': 'Roommates',
+                'owner_id': 'abu',
+                'members': [
+                  {
+                    'user_id': 'abu',
+                    'email': 'abu@gmail.com',
+                    'first_name': 'Abu',
+                    'last_name': '',
+                  },
+                  {
+                    'user_id': _amit.id,
+                    'email': _amit.email,
+                    'first_name': _amit.firstName,
+                    'last_name': _amit.lastName,
+                  },
+                ],
+              },
+            ],
+          }),
+          200,
+        );
+      }),
+    );
+
+    final groups = await api.listGroups(
+      accessToken: 'token',
+      currentUserId: _amit.id,
+    );
+
+    expect(url.path, '/api/v1/groups');
+    expect(groups.single.name, 'Roommates');
+    expect([for (final m in groups.single.members) m.firstName], ['Abu']);
+  });
+
   test('listGroupExpenses reads expenses for the group', () async {
     late Uri url;
     final api = ExpenseApi(

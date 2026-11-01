@@ -8,6 +8,9 @@ type Group struct {
 	CreatedBy string    `json:"created_by"`
 	UserID    uuid.UUID `gorm:"type:uuid;not null;index" json:"user_id"`
 	User      User      `gorm:"foreignKey:UserID;references:ID" json:"-"`
+	// Members are the users added to the group; the owner (UserID) is not
+	// one of them.
+	Members []GroupMembers `gorm:"foreignKey:GroupID" json:"-"`
 }
 
 type GroupMembers struct {
