@@ -110,7 +110,7 @@ jobs:
         env:
           SSH_HOST: ${{ secrets.SSH_HOST }}
           SSH_USER: ${{ secrets.SSH_USER }}
-          API_PORT: ${{ vars.DEPLOY_PORT || '8082' }}
+          API_PORT: ${{ vars.DEPLOY_PORT || '8083' }}
         run: |
           ssh -i ~/.ssh/deploy_key "$SSH_USER@$SSH_HOST" \
             "curl -fsS -o /dev/null -w 'GET /docs -> %{http_code}\n' http://127.0.0.1:$API_PORT/docs"
