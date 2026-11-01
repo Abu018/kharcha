@@ -10,12 +10,20 @@ import '../theme/app_theme.dart';
 /// Bar chart of spending per month. The x-axis always shows every month of
 /// the chart; the y-axis has four equal steps rounded to a readable amount.
 class MonthlyChart extends StatelessWidget {
-  const MonthlyChart({super.key, required this.chart, this.highlight});
+  const MonthlyChart({
+    super.key,
+    required this.chart,
+    this.highlight,
+    this.onBarTap,
+  });
 
   final SpendingChart chart;
 
   /// Index of the bar to draw in the accent colour, e.g. the current month.
   final int? highlight;
+
+  /// Called with the index of a bar when it is tapped.
+  final ValueChanged<int>? onBarTap;
 
   static const _steps = 4;
 
@@ -116,6 +124,12 @@ class MonthlyChart extends StatelessWidget {
             ),
             borderData: FlBorderData(show: false),
             barTouchData: BarTouchData(
+              touchCallback: (event, response) {
+                final spot = response?.spot;
+                if (onBarTap != null && event is FlTapUpEvent && spot != null) {
+                  onBarTap!(spot.touchedBarGroupIndex);
+                }
+              },
               touchTooltipData: BarTouchTooltipData(
                 getTooltipColor: (_) => AppColors.card,
                 getTooltipItem: (group, _, rod, _) => BarTooltipItem(

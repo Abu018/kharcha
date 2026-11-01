@@ -725,6 +725,72 @@ void main() {
     expect(find.byKey(const Key('date-range-clear')), findsNothing);
   });
 
+  testWidgets('the month filter loads an older month', (tester) async {
+    final api = _FakeExpenseApi(_echo);
+    await _pump(
+      tester,
+      _app(
+        authApi: _FakeAuthApi(onLogin: () => _session),
+        expenseApi: api,
+      ),
+    );
+    await _signIn(tester);
+
+    final now = DateTime.now();
+    final old = DateTime(now.year, now.month - 3);
+    await tester.tap(find.byKey(const Key('summary-period-filter')));
+    await tester.pumpAndSettle();
+    final option = find.byKey(Key('month-option-${old.year}-${old.month}'));
+    await tester.ensureVisible(option);
+    await tester.tap(option);
+    await tester.pumpAndSettle();
+
+    expect(api.listRanges.last, (old, DateTime(old.year, old.month + 1, 0)));
+    expect(find.byKey(const Key('month-picker')), findsNothing);
+  });
+
+  testWidgets('month arrows load the previous month and come back', (
+    tester,
+  ) async {
+    final api = _FakeExpenseApi(_echo);
+    await _pump(
+      tester,
+      _app(
+        authApi: _FakeAuthApi(onLogin: () => _session),
+        expenseApi: api,
+      ),
+    );
+    await _signIn(tester);
+
+    final now = DateTime.now();
+    const months = [
+      'January', 'February', 'March', 'April', 'May', 'June', 'July', //
+      'August', 'September', 'October', 'November', 'December',
+    ];
+    String label(DateTime m) =>
+        'Spent in ${months[m.month - 1]}'
+        '${m.year == now.year ? '' : ' ${m.year}'}';
+    final previous = DateTime(now.year, now.month - 1);
+
+    expect(find.text(label(DateTime(now.year, now.month))), findsOneWidget);
+    await tester.tap(find.byKey(const Key('month-next')));
+    await tester.pumpAndSettle();
+    expect(api.listRanges, [(null, null)], reason: 'no future months');
+
+    await tester.tap(find.byKey(const Key('month-previous')));
+    await tester.pumpAndSettle();
+    expect(api.listRanges.last, (
+      previous,
+      DateTime(previous.year, previous.month + 1, 0),
+    ));
+    expect(find.text(label(previous)), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('month-next')));
+    await tester.pumpAndSettle();
+    expect(api.listRanges.last, (null, null));
+    expect(find.text(label(DateTime(now.year, now.month))), findsOneWidget);
+  });
+
   test('formatDateRange shows one day, a range, and other years', () {
     final now = DateTime(2026, 10, 26);
     String fmt(DateTime a, DateTime b) => formatDateRange(

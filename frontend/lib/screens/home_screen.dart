@@ -189,6 +189,82 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  /// Shows payments of [month]. The current month is the default view, so
+  /// picking it clears the range.
+  void _showMonth(DateTime month) {
+    final onChanged = widget.onDateRangeChanged;
+    final now = DateTime.now();
+    if (onChanged == null || month.isAfter(now)) {
+      return;
+    }
+    if (month.year == now.year && month.month == now.month) {
+      onChanged(null);
+      return;
+    }
+    onChanged(
+      DateTimeRange(
+        start: DateTime(month.year, month.month),
+        end: DateTime(month.year, month.month + 1, 0),
+      ),
+    );
+  }
+
+  /// Lets the user pick one of the last two years' months, or custom dates.
+  Future<void> _pickMonth(DateTime? selected) async {
+    final now = DateTime.now();
+    final picked = await showModalBottomSheet<DateTime?>(
+      context: context,
+      backgroundColor: AppColors.surface,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (context) => SafeArea(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.sizeOf(context).height * 0.7,
+          ),
+          child: ListView(
+            key: const Key('month-picker'),
+            shrinkWrap: true,
+            padding: const EdgeInsets.only(bottom: 12),
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+                child: Text(
+                  'Show spending for',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+              ),
+              for (var i = 0; i < 24; i++)
+                if (DateTime(now.year, now.month - i) case final month)
+                  ListTile(
+                    key: Key('month-option-${month.year}-${month.month}'),
+                    title: Text('${_months[month.month - 1]} ${month.year}'),
+                    trailing: month == selected
+                        ? const Icon(Icons.check_rounded, color: AppColors.lime)
+                        : null,
+                    onTap: () => Navigator.of(context).pop(month),
+                  ),
+              ListTile(
+                key: const Key('month-option-custom'),
+                leading: const Icon(Icons.date_range_rounded),
+                title: const Text('Custom dates…'),
+                onTap: () => Navigator.of(context).pop(DateTime(0)),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (picked == null || !mounted) {
+      return;
+    }
+    if (picked.year == 0) {
+      await _pickDateRange();
+    } else {
+      _showMonth(picked);
+    }
+  }
+
   Future<void> _changeCategory(Expense expense) async {
     final onChange = widget.onChangeCategory;
     if (onChange == null) {
@@ -267,9 +343,17 @@ class _HomeScreenState extends State<HomeScreen> {
                 when.year == now.year &&
                 when.month == now.month;
           }).toList();
-    final periodLabel = range != null
-        ? formatDateRange(range)
-        : 'in ${_months[now.month - 1]}';
+    final month = range == null
+        ? DateTime(now.year, now.month)
+        : _wholeMonth(range);
+    final periodLabel = month == null
+        ? formatDateRange(range!)
+        : 'in ${_months[month.month - 1]}'
+              '${month.year == now.year ? '' : ' ${month.year}'}';
+    // Arrows step from the shown month, or from where a custom range starts.
+    final anchor = month ?? DateTime(range!.start.year, range.start.month);
+    final canPickMonth = widget.onDateRangeChanged != null;
+    final isCurrentMonth = anchor.year == now.year && anchor.month == now.month;
     final visible = _visible;
 
     final content = ListView(
@@ -282,7 +366,17 @@ class _HomeScreenState extends State<HomeScreen> {
           onSignOut: widget.onSignOut,
         ),
         const SizedBox(height: 20),
-        _SummaryCard(period: periodLabel, expenses: period),
+        _SummaryCard(
+          period: periodLabel,
+          expenses: period,
+          onPickPeriod: canPickMonth ? () => _pickMonth(month) : null,
+          onPrevious: canPickMonth
+              ? () => _showMonth(DateTime(anchor.year, anchor.month - 1))
+              : null,
+          onNext: canPickMonth && !isCurrentMonth
+              ? () => _showMonth(DateTime(anchor.year, anchor.month + 1))
+              : null,
+        ),
         if (widget.autoDetect != AutoDetectState.unsupported ||
             widget.notificationDetect != AutoDetectState.unsupported) ...[
           const SizedBox(height: 14),
@@ -302,7 +396,13 @@ class _HomeScreenState extends State<HomeScreen> {
           const SizedBox(height: 28),
           _SectionTitle(chart.title.isEmpty ? 'This year' : chart.title),
           const SizedBox(height: 12),
-          MonthlyChart(chart: chart, highlight: now.month - 1),
+          MonthlyChart(
+            chart: chart,
+            highlight: anchor.year == now.year ? anchor.month - 1 : null,
+            onBarTap: canPickMonth
+                ? (i) => _showMonth(DateTime(now.year, i + 1))
+                : null,
+          ),
         ],
         if (period.any((e) => !e.isCredit)) ...[
           const SizedBox(height: 28),
@@ -486,12 +586,39 @@ class _Header extends StatelessWidget {
   }
 }
 
+/// The month [range] covers exactly (first to last day), or `null`.
+DateTime? _wholeMonth(DateTimeRange range) {
+  final start = range.start;
+  final end = range.end;
+  final last = DateTime(start.year, start.month + 1, 0);
+  return start.day == 1 &&
+          end.year == last.year &&
+          end.month == last.month &&
+          end.day == last.day
+      ? DateTime(start.year, start.month)
+      : null;
+}
+
 class _SummaryCard extends StatelessWidget {
-  const _SummaryCard({required this.period, required this.expenses});
+  const _SummaryCard({
+    required this.period,
+    required this.expenses,
+    this.onPickPeriod,
+    this.onPrevious,
+    this.onNext,
+  });
 
   /// Follows "Spent", e.g. `in October` or `1 Oct – 15 Oct`.
   final String period;
   final List<Expense> expenses;
+
+  /// Opens the month filter when the period is tapped.
+  final VoidCallback? onPickPeriod;
+
+  /// Show the month before / after. An arrow is hidden while its callback
+  /// is `null`.
+  final VoidCallback? onPrevious;
+  final VoidCallback? onNext;
 
   @override
   Widget build(BuildContext context) {
@@ -530,13 +657,52 @@ class _SummaryCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  'Spent $period',
-                  key: const Key('summary-period'),
-                  style: const TextStyle(
-                    color: AppColors.ink,
-                    fontWeight: FontWeight.w600,
-                  ),
+                Row(
+                  children: [
+                    Flexible(
+                      child: InkWell(
+                        key: const Key('summary-period-filter'),
+                        onTap: onPickPeriod,
+                        borderRadius: BorderRadius.circular(8),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Flexible(
+                              child: Text(
+                                'Spent $period',
+                                key: const Key('summary-period'),
+                                style: const TextStyle(
+                                  color: AppColors.ink,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                            if (onPickPeriod != null)
+                              const Icon(
+                                Icons.arrow_drop_down_rounded,
+                                color: AppColors.ink,
+                              ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    if (onPrevious != null || onNext != null) ...[
+                      const SizedBox(width: 6),
+                      _MonthArrow(
+                        key: const Key('month-previous'),
+                        icon: Icons.chevron_left_rounded,
+                        tooltip: 'Previous month',
+                        onTap: onPrevious,
+                      ),
+                      const SizedBox(width: 4),
+                      _MonthArrow(
+                        key: const Key('month-next'),
+                        icon: Icons.chevron_right_rounded,
+                        tooltip: 'Next month',
+                        onTap: onNext,
+                      ),
+                    ],
+                  ],
                 ),
                 const SizedBox(height: 6),
                 Text(
@@ -572,6 +738,44 @@ class _SummaryCard extends StatelessWidget {
       ),
     );
   }
+}
+
+class _MonthArrow extends StatelessWidget {
+  const _MonthArrow({
+    super.key,
+    required this.icon,
+    required this.tooltip,
+    this.onTap,
+  });
+
+  final IconData icon;
+  final String tooltip;
+
+  /// Drawn faded and does nothing while `null`, e.g. "next" on this month.
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) => Tooltip(
+    message: tooltip,
+    child: Material(
+      color: onTap == null
+          ? AppColors.ink.withValues(alpha: 0.15)
+          : AppColors.ink,
+      shape: const CircleBorder(),
+      child: InkWell(
+        customBorder: const CircleBorder(),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(4),
+          child: Icon(
+            icon,
+            size: 20,
+            color: onTap == null ? AppColors.ink : AppColors.lime,
+          ),
+        ),
+      ),
+    ),
+  );
 }
 
 class _DarkChip extends StatelessWidget {
