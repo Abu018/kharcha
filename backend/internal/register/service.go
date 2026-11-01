@@ -14,12 +14,13 @@ import (
 )
 
 type AuthService struct {
-	repo Repo
-	kc   utils.KeycloakConfig
+	repo   Repo
+	secret SecretKey
+	kc     utils.KeycloakConfig
 }
 
-func NewAuthService(repo Repo, kc utils.KeycloakConfig) *AuthService {
-	return &AuthService{repo: repo, kc: kc}
+func NewAuthService(repo Repo, kc utils.KeycloakConfig, secret SecretKey) *AuthService {
+	return &AuthService{repo: repo, kc: kc, secret: secret}
 }
 
 var keycloakClient = &http.Client{Timeout: 15 * time.Second}
@@ -41,6 +42,13 @@ func (r AuthService) Register(user_name, first_name, last_name, password, email 
 func (r AuthService) Login(email, password string) (dto.LoginResponse, error) {
 	ok, err := r.repo.Login(email, password)
 	if err != nil {
+		return dto.LoginResponse{}, err
+	}
+	key, err := r.secret.HasSecretKey(ok.UserId)
+	if err != nil {
+		return dto.LoginResponse{}, err
+	}
+	if err := r.secret.GenerateTemporaryID(ok.UserId, key); err != nil {
 		return dto.LoginResponse{}, err
 	}
 	return ok, nil

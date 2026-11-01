@@ -30,6 +30,8 @@ tags:
     description: Shared expenses with friends
   - name: Notifications
     description: Push notification setup
+  - name: Presence
+    description: Rotating BLE temporary IDs issued by the server
 
 paths:
   /api/v1/register:
@@ -431,6 +433,27 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Envelope" }
 
+  /api/v1/presence/temporary-id:
+    get:
+      tags: [Presence]
+      summary: The signed-in user's current BLE temporary ID
+      description: |
+        The server derives the ID from the user's secret and the 15-minute
+        time slot. The app advertises `temporary_id` until `expires_at`, then
+        switches to `next_temporary_id`. The phone must not compute HMAC.
+      responses:
+        "200":
+          description: Current and next slot IDs
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - properties:
+                      data: { $ref: "#/components/schemas/TemporaryID" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "500": { $ref: "#/components/responses/Error" }
+
   /api/v1/token:
     post:
       tags: [Notifications]
@@ -590,6 +613,14 @@ components:
           type: array
           items: { $ref: "#/components/schemas/User" }
         created_at: { type: string, format: date-time }
+
+    TemporaryID:
+      type: object
+      properties:
+        temporary_id: { type: string, minLength: 16, maxLength: 16, example: a1b2c3d4e5f60718 }
+        expires_at: { type: string, format: date-time }
+        next_temporary_id: { type: string, minLength: 16, maxLength: 16 }
+        next_expires_at: { type: string, format: date-time }
 
     GroupExpense:
       type: object

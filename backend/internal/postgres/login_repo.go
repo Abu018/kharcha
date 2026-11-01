@@ -96,12 +96,19 @@ func (r *UserRepo) Login(email, password string) (dto.LoginResponse, error) {
 		log.Printf("Error authenticating: %v", err)
 		return dto.LoginResponse{}, register.ErrInvalidCredentials
 	}
+
+	var user models.User
+	if err := r.db.Select("id").Where("email = ?", email).First(&user).Error; err != nil {
+		return dto.LoginResponse{}, err
+	}
+
 	resp := dto.LoginResponse{
 		AccessToken:      token.AccessToken,
 		RefreshToken:     token.RefreshToken,
 		TokenType:        token.TokenType,
 		ExpiresIn:        token.ExpiresIn,
 		RefreshExpiresIn: token.RefreshExpiresIn,
+		UserId:           user.ID,
 	}
 	return resp, nil
 

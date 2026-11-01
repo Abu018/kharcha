@@ -15,3 +15,7 @@ type Repo interface {
 	Register(user_name, first_name, last_name, password, email string) (uuid.UUID, error)
 	Login(email, password string) (dto.LoginResponse, error)
 }
+type SecretKey interface {
+	HasSecretKey(userID uuid.UUID) (string, error)
+	GenerateTemporaryID(userID uuid.UUID, key string) error
+}

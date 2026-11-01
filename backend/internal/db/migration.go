@@ -29,6 +29,7 @@ func Migration(db *gorm.DB) error {
 		&models.Expense{},
 		&models.ExepenseItems{},
 		&models.Ephemeral{},
+		&models.UserPresenceKeys{},
 		&models.Notification{},
 	); err != nil {
 		return err

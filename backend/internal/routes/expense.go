@@ -23,12 +23,16 @@ func RegisterExpenseRoutes(
 ) {
 	repo := postgres.NewUserRepo(db, cfg.Keycloak)
 	expenseRepo := postgres.NewExpenseRepo(db)
-	authService := register.NewAuthService(repo, cfg.Keycloak)
+	secretKeys := postgres.NewSecretKeyRepo(db)
+	go secretKeys.RunTemporaryIDScheduler(context.Background())
+
+	authService := register.NewAuthService(repo, cfg.Keycloak, secretKeys)
 	authHandler := handler.NewAuthHandler(authService)
 	expenseService := expense.NewService(expenseRepo, cfg.Classifier)
 	expenseHandler := handler.NewExpenseHandler(expenseService)
 	go expenseService.RunBackfill(context.Background(), time.Minute)
 	profileHandler := handler.NewProfileHandler(profile.NewService(repo))
+	presenceHandler := handler.NewPresenceHandler(secretKeys)
 
 	kc := gocloak.NewClient(cfg.Keycloak.URL)
 
@@ -44,6 +48,7 @@ func RegisterExpenseRoutes(
 			p.Get("/profile", profileHandler.GetProfile)
 			p.Put("/profile", profileHandler.UpdateProfile)
 			p.Get("/users", profileHandler.ListUsers)
+			p.Get("/presence/temporary-id", presenceHandler.TemporaryID)
 			p.Post("/expense", expenseHandler.Expense)
 			p.Get("/expenses", expenseHandler.List)
 			p.Get("/expenses/monthly", expenseHandler.Monthly)
