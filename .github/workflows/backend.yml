@@ -25,8 +25,8 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
         with:
           go-version-file: backend/go.mod
           cache-dependency-path: backend/go.sum
@@ -45,8 +45,8 @@ jobs:
     runs-on: ubuntu-latest
     environment: production
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
         with:
           go-version-file: backend/go.mod
           cache-dependency-path: backend/go.sum
@@ -64,10 +64,19 @@ jobs:
           SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
           SSH_HOST: ${{ secrets.SSH_HOST }}
         run: |
+          for name in SSH_PRIVATE_KEY SSH_HOST; do
+            if [ -z "${!name}" ]; then
+              echo "::error::Secret $name is not set (Settings → Secrets and variables → Actions)"
+              exit 1
+            fi
+          done
           install -m 700 -d ~/.ssh
           printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+          if ! ssh-keyscan -T 15 -H "$SSH_HOST" >> ~/.ssh/known_hosts; then
+            echo "::error::Cannot reach $SSH_HOST on port 22. Allow SSH (TCP 22) in the server's security group."
+            exit 1
+          fi
 
       - name: Upload and restart
         env:

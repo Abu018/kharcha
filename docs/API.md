@@ -249,6 +249,31 @@ curl -X PUT "$API_URL"/api/v1/expenses/$EXPENSE_ID/category \
   -d '{"category_id":"'"$CATEGORY_ID"'"}'
 ```
 
+### `GET /api/v1/groups` — Live
+
+Groups the user created or was added to, newest first. `members` lists
+everyone in the group, owner first, including the user asking.
+
+```json
+[
+  {
+    "id": "8f1c…",
+    "name": "Roommates",
+    "owner_id": "3a9e…",
+    "members": [
+      { "user_id": "3a9e…", "email": "abu@gmail.com", "first_name": "Abu", "last_name": "" },
+      { "user_id": "52d0…", "email": "amit@gmail.com", "first_name": "amit", "last_name": "" }
+    ],
+    "created_at": "2026-10-30T12:00:00Z"
+  }
+]
+```
+
+| Status | `message`                         |
+| ------ | --------------------------------- |
+| 401    | `missing token` / `invalid token` |
+| 500    | `failed to load groups`           |
+
 ### Transaction object
 
 ```json
