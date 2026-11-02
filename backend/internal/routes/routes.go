@@ -14,5 +14,4 @@ func SetupRoutes(r *chi.Mux, db *gorm.DB, cfg *utils.Config) {
 	r.Use(middleware.Middleware)
 	apidocs.Register(r)
 	RegisterExpenseRoutes(r, db, cfg)
-	// RegisterNotificationRoutes(r, db, cfg)
 }

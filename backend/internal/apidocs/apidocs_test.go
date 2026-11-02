@@ -41,7 +41,7 @@ func TestSpecListsEveryRoute(t *testing.T) {
 		"/api/v1/expenses/{id}/category", "/api/v1/categories",
 		"/api/v1/create-group", "/api/v1/groups", "/api/v1/groups/{groupID}/expenses",
 		"/api/v1/presence/temporary-id",
-		"/api/v1/token",
+		"/api/v1/presence/sightings",
 	}
 	for _, route := range routes {
 		if !strings.Contains(string(spec), "\n  "+route+":\n") {

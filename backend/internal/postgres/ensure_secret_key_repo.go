@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"log"
+	"my_app/backend/internal/dto"
 	"my_app/backend/internal/models"
 	"my_app/backend/internal/utils"
 	"time"
@@ -75,6 +76,55 @@ func (r *SecretKey) CurrentTemporaryID(userID uuid.UUID) (current, next models.E
 		return models.Ephemeral{}, models.Ephemeral{}, err
 	}
 	return current, next, nil
+}
+
+// LookupEphemeral returns live IDs in [minSlot, maxSlot] whose key is in keys.
+func (r *SecretKey) LookupEphemeral(keys []string, minSlot, maxSlot int64) ([]models.Ephemeral, error) {
+	if len(keys) == 0 {
+		return nil, nil
+	}
+	var rows []models.Ephemeral
+	err := r.db.Preload("User").
+		Where("key IN ? AND time_slot BETWEEN ? AND ?", keys, minSlot, maxSlot).
+		Find(&rows).Error
+	return rows, err
+}
+
+// SharedGroups returns groups that contain both the viewer and each other user.
+func (r *SecretKey) SharedGroups(viewer uuid.UUID, others []uuid.UUID) (map[uuid.UUID][]dto.SharedGroup, error) {
+	out := map[uuid.UUID][]dto.SharedGroup{}
+	if len(others) == 0 {
+		return out, nil
+	}
+	var rows []struct {
+		ID      uuid.UUID `gorm:"column:id"`
+		Name    string    `gorm:"column:name"`
+		OtherID uuid.UUID `gorm:"column:other_id"`
+	}
+	err := r.db.Raw(`
+		SELECT g.id, g.name, candidate.user_id AS other_id
+		FROM (
+			SELECT id AS group_id, user_id FROM groups
+			WHERE deleted_at IS NULL AND user_id IN ?
+			UNION
+			SELECT group_id, user_id FROM group_members
+			WHERE deleted_at IS NULL AND user_id IN ?
+		) candidate
+		JOIN groups g ON g.id = candidate.group_id AND g.deleted_at IS NULL
+		WHERE g.user_id = ? OR EXISTS (
+			SELECT 1 FROM group_members m
+			WHERE m.group_id = g.id AND m.user_id = ? AND m.deleted_at IS NULL
+		)
+		ORDER BY g.name`,
+		others, others, viewer, viewer,
+	).Scan(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+	for _, row := range rows {
+		out[row.OtherID] = append(out[row.OtherID], dto.SharedGroup{ID: row.ID, Name: row.Name})
+	}
+	return out, nil
 }
 
 func (r *SecretKey) lookupTemporaryID(userID uuid.UUID, slot int64) (models.Ephemeral, error) {

@@ -55,3 +55,9 @@ func UserIDFromContext(ctx context.Context) string {
 	id, _ := ctx.Value(userIDKey).(string)
 	return id
 }
+
+// WithUserID is the same context Auth sets after a valid token. Tests use it
+// to call handlers without Keycloak.
+func WithUserID(ctx context.Context, userID string) context.Context {
+	return context.WithValue(ctx, userIDKey, userID)
+}

@@ -28,10 +28,8 @@ tags:
     description: What a payment can be filed under
   - name: Groups
     description: Shared expenses with friends
-  - name: Notifications
-    description: Push notification setup
   - name: Presence
-    description: Rotating BLE temporary IDs issued by the server
+    description: Rotating BLE temporary IDs and nearby-user lookup
 
 paths:
   /api/v1/register:
@@ -454,23 +452,39 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "500": { $ref: "#/components/responses/Error" }
 
-  /api/v1/token:
+  /api/v1/presence/sightings:
     post:
-      tags: [Notifications]
-      summary: Register this device's FCM token for push notifications
+      tags: [Presence]
+      summary: Resolve BLE ephemeral IDs to nearby people
+      description: |
+        The phone sends temporary IDs it heard over Bluetooth. The server looks
+        them up in `ephemeral` (current and adjacent 15-minute slots) and
+        returns people who share a group with the caller. Unknown, expired,
+        own, and stranger IDs are omitted. The caller is taken from the token.
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              required: [token]
               properties:
-                token: { type: string }
+                sightings:
+                  type: array
+                  maxItems: 50
+                  items: { $ref: "#/components/schemas/Sighting" }
       responses:
-        "201": { $ref: "#/components/responses/Ok" }
+        "200":
+          description: Eligible nearby users
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - properties:
+                      data: { $ref: "#/components/schemas/NearbyUsers" }
         "400": { $ref: "#/components/responses/Error" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "500": { $ref: "#/components/responses/Error" }
 
 components:
   securitySchemes:
@@ -621,6 +635,39 @@ components:
         expires_at: { type: string, format: date-time }
         next_temporary_id: { type: string, minLength: 16, maxLength: 16 }
         next_expires_at: { type: string, format: date-time }
+
+    Sighting:
+      type: object
+      required: [ephemeral_id]
+      properties:
+        ephemeral_id: { type: string, minLength: 16, maxLength: 16, example: 1122334455667788 }
+        rssi: { type: integer, example: -58, description: "dBm; closer to 0 is stronger" }
+        seen: { type: integer, minimum: 1, example: 4 }
+
+    NearbyUsers:
+      type: object
+      properties:
+        users:
+          type: array
+          items: { $ref: "#/components/schemas/NearbyUser" }
+
+    NearbyUser:
+      type: object
+      properties:
+        user_id: { type: string, format: uuid }
+        ephemeral_id: { type: string, minLength: 16, maxLength: 16 }
+        first_name: { type: string }
+        last_name: { type: string }
+        rssi: { type: integer }
+        seen: { type: integer }
+        in_range: { type: boolean }
+        shared_groups:
+          type: array
+          items:
+            type: object
+            properties:
+              id: { type: string, format: uuid }
+              name: { type: string }
 
     GroupExpense:
       type: object

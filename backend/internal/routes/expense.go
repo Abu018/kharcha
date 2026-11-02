@@ -6,6 +6,7 @@ import (
 	"my_app/backend/internal/expense"
 	"my_app/backend/internal/handler"
 	"my_app/backend/internal/postgres"
+	"my_app/backend/internal/presence"
 	"my_app/backend/internal/profile"
 	"my_app/backend/internal/register"
 	"my_app/backend/internal/utils"
@@ -32,7 +33,7 @@ func RegisterExpenseRoutes(
 	expenseHandler := handler.NewExpenseHandler(expenseService)
 	go expenseService.RunBackfill(context.Background(), time.Minute)
 	profileHandler := handler.NewProfileHandler(profile.NewService(repo))
-	presenceHandler := handler.NewPresenceHandler(secretKeys)
+	presenceHandler := handler.NewPresenceHandler(secretKeys, presence.NewService(secretKeys))
 
 	kc := gocloak.NewClient(cfg.Keycloak.URL)
 
@@ -49,6 +50,7 @@ func RegisterExpenseRoutes(
 			p.Put("/profile", profileHandler.UpdateProfile)
 			p.Get("/users", profileHandler.ListUsers)
 			p.Get("/presence/temporary-id", presenceHandler.TemporaryID)
+			p.Post("/presence/sightings", presenceHandler.Sightings)
 			p.Post("/expense", expenseHandler.Expense)
 			p.Get("/expenses", expenseHandler.List)
 			p.Get("/expenses/monthly", expenseHandler.Monthly)
