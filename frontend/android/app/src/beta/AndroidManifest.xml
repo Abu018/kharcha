@@ -1,0 +1,13 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <application android:usesCleartextTraffic="true">
+        <!-- Play Protect blocks sideloaded apps that can read other apps'
+             notifications, so the beta build drops payment detection. -->
+        <service
+            android:name=".PaymentNotificationListener"
+            tools:node="remove"/>
+    </application>
+    <!-- The dev server is plain HTTP (http://<ec2-ip>:8083); release builds
+         block cleartext unless allowed. Drop usesCleartextTraffic once the
+         API has HTTPS. -->
+</manifest>

@@ -2,25 +2,33 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import 'api/analytics_api.dart';
 import 'api/auth_api.dart';
 import 'api/expense_api.dart';
-import 'api/notification_api.dart';
+import 'api/presence_api.dart';
 import 'api/profile_api.dart';
+import 'models/analytics_overview.dart';
 import 'models/app_user.dart';
 import 'models/auth_session.dart';
 import 'models/expense.dart';
 import 'models/expense_group.dart';
+import 'models/nearby_sighting.dart';
 import 'models/spending_chart.dart';
 import 'screens/app_shell.dart';
 import 'screens/groups_screen.dart';
 import 'screens/home_screen.dart';
+import 'screens/insights_screen.dart';
 import 'screens/login_screen.dart';
+import 'screens/nearby_screen.dart';
 import 'services/auto_detect.dart';
+import 'services/ble_presence.dart';
+import 'services/nearby_session.dart';
 import 'services/notification_source.dart';
-import 'services/push_service.dart';
+import 'services/presence_service.dart';
 import 'services/session_store.dart';
 import 'services/sms_source.dart';
 import 'theme/app_theme.dart';
+import 'widgets/split_proposal_sheet.dart';
 
 void main() {
   runApp(const MyApp());
@@ -32,21 +40,25 @@ class MyApp extends StatefulWidget {
     this.authApi,
     this.profileApi,
     this.expenseApi,
+    this.analyticsApi,
     this.smsSource,
     this.notificationSource,
     this.sessionStore,
-    this.notificationApi,
-    this.pushService,
+    this.presenceApi,
+    this.presenceService,
+    this.blePresence,
   });
 
   final AuthApi? authApi;
   final ProfileApi? profileApi;
   final ExpenseApi? expenseApi;
+  final AnalyticsApi? analyticsApi;
   final SmsSource? smsSource;
   final NotificationSource? notificationSource;
   final SessionStore? sessionStore;
-  final NotificationApi? notificationApi;
-  final PushService? pushService;
+  final PresenceApi? presenceApi;
+  final PresenceService? presenceService;
+  final BlePresence? blePresence;
 
   @override
   State<MyApp> createState() => _MyAppState();
@@ -60,6 +72,8 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
   late final AuthApi _authApi = widget.authApi ?? AuthApi();
   late final ProfileApi _profileApi = widget.profileApi ?? ProfileApi();
   late final ExpenseApi _expenseApi = widget.expenseApi ?? ExpenseApi();
+  late final AnalyticsApi _analyticsApi =
+      widget.analyticsApi ?? AnalyticsApi();
   late final SmsSource _sms = widget.smsSource ?? SmsSource();
   late final NotificationSource _notifications =
       widget.notificationSource ?? NotificationSource();
@@ -69,9 +83,21 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     api: _expenseApi,
   );
   late final SessionStore _store = widget.sessionStore ?? SessionStore();
-  late final NotificationApi _notificationApi =
-      widget.notificationApi ?? NotificationApi();
-  late final PushService _push = widget.pushService ?? PushService();
+  late final PresenceApi _presenceApi = widget.presenceApi ?? PresenceApi();
+  late final PresenceService _presence =
+      widget.presenceService ?? PresenceService();
+  late final BlePresence _ble = widget.blePresence ?? BlePresence();
+  late final NearbySession _nearby = NearbySession(
+    ble: _ble,
+    ids: _presence,
+    fetchId: () => _authed((token) => _presenceApi.current(accessToken: token)),
+    resolve: (sightings) => _authed(
+      (token) => _presenceApi.reportSightings(
+        accessToken: token,
+        sightings: sightings,
+      ),
+    ),
+  );
 
   AuthSession? _session;
   String? _loginNotice;
@@ -81,6 +107,12 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
 
   List<Expense> _expenses = const [];
   SpendingChart? _monthlyChart;
+  AnalyticsOverview? _insights;
+  bool _loadingInsights = false;
+  String? _insightsError;
+
+  /// Inclusive filter for every Insights chart; `null` = current month.
+  DateTimeRange? _insightsRange;
 
   /// What a payment can be moved to; empty until loaded.
   List<ExpenseCategory> _categories = const [];
@@ -95,22 +127,29 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
 
   AutoDetectState _autoDetect = AutoDetectState.unsupported;
   AutoDetectState _notificationDetect = AutoDetectState.unsupported;
+
+  /// The user turned off reading SMS and notifications on this device.
+  bool _detectPaused = false;
   bool _syncing = false;
   bool _syncAgain = false;
   DateTime? _lastSynced;
   StreamSubscription<SmsMessageData>? _incoming;
   StreamSubscription<PaymentNotification>? _incomingNotifications;
-  StreamSubscription<String>? _pushTokenRefreshes;
-  StreamSubscription<PushMessage>? _pushMessages;
 
   bool get _detecting =>
-      _autoDetect == AutoDetectState.on ||
-      _notificationDetect == AutoDetectState.on;
+      !_detectPaused &&
+      (_autoDetect == AutoDetectState.on ||
+          _notificationDetect == AutoDetectState.on);
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _nearby.onUpdate = () {
+      if (mounted) {
+        setState(() {});
+      }
+    };
     _restore();
   }
 
@@ -119,14 +158,21 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     WidgetsBinding.instance.removeObserver(this);
     _incoming?.cancel();
     _incomingNotifications?.cancel();
-    _pushTokenRefreshes?.cancel();
-    _pushMessages?.cancel();
+    unawaited(_nearby.dispose());
+    _presence.stop();
     super.dispose();
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state != AppLifecycleState.resumed || _session == null) {
+    if (state == AppLifecycleState.paused) {
+      unawaited(_nearby.pause());
+    } else if (state == AppLifecycleState.resumed) {
+      unawaited(_nearby.resume());
+    }
+    if (state != AppLifecycleState.resumed ||
+        _session == null ||
+        _detectPaused) {
       return;
     }
     // Notification access is granted in Android settings, so the only way
@@ -199,10 +245,19 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
   void _startSession() {
     unawaited(_loadExpenses());
     unawaited(_loadChart());
+    unawaited(_loadInsights());
     unawaited(_loadCategories());
     unawaited(_loadGroups());
     unawaited(_initAutoDetect());
-    unawaited(_initPush());
+    unawaited(_initPresence());
+  }
+
+  /// Loads the backend-issued BLE temporary ID and refreshes it at each
+  /// 15-minute slot. The app never computes the ID itself.
+  Future<void> _initPresence() async {
+    await _presence.start(
+      () => _authed((token) => _presenceApi.current(accessToken: token)),
+    );
   }
 
   Future<void> _loadGroups() async {
@@ -233,42 +288,6 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     }
   }
 
-  /// Gets this device's FCM token and links it to the signed-in user, then
-  /// keeps the backend up to date when Firebase issues a new one.
-  Future<void> _initPush() async {
-    final token = await _push.getToken();
-    if (token == null || !mounted || _session == null) {
-      return;
-    }
-    await _sendPushToken(token);
-    _pushTokenRefreshes ??= _push.tokenRefreshes().listen(
-      (token) => unawaited(_sendPushToken(token)),
-      onError: (_) {},
-    );
-    _pushMessages ??= _push.foregroundMessages().listen((message) {
-      final text = [
-        message.title,
-        message.body,
-      ].where((s) => s.isNotEmpty).join(' · ');
-      if (text.isNotEmpty) {
-        _messengerKey.currentState?.showSnackBar(SnackBar(content: Text(text)));
-      }
-    }, onError: (_) {});
-  }
-
-  Future<void> _sendPushToken(String token) async {
-    try {
-      await _authed(
-        (accessToken) => _notificationApi.registerDeviceToken(
-          accessToken: accessToken,
-          token: token,
-        ),
-      );
-    } on ApiException {
-      // Sent again on the next sign-in or app start.
-    }
-  }
-
   /// Reloads spending per month of the current year. Failures keep the chart
   /// that is already shown; the list's own error message covers being offline.
   Future<void> _loadChart() async {
@@ -284,29 +303,71 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     }
   }
 
+  Future<void> _loadInsights() async {
+    if (_session == null) {
+      return;
+    }
+    setState(() {
+      _loadingInsights = true;
+      _insightsError = null;
+    });
+    final range = _insightsRange;
+    try {
+      final overview = await _authed(
+        (token) => _analyticsApi.overview(
+          accessToken: token,
+          from: range?.start,
+          to: range?.end,
+        ),
+      );
+      if (!mounted || _session == null) {
+        return;
+      }
+      setState(() {
+        _insights = overview;
+        _loadingInsights = false;
+      });
+    } on ApiException catch (e) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _loadingInsights = false;
+        _insightsError = e.message;
+      });
+    }
+  }
+
+  void _setInsightsRange(DateTimeRange? range) {
+    setState(() => _insightsRange = range);
+    unawaited(_loadInsights());
+  }
+
   void _signOut({String? notice}) {
     _navigatorKey.currentState?.popUntil((route) => route.isFirst);
     _incoming?.cancel();
     _incoming = null;
     _incomingNotifications?.cancel();
     _incomingNotifications = null;
-    _pushTokenRefreshes?.cancel();
-    _pushTokenRefreshes = null;
-    _pushMessages?.cancel();
-    _pushMessages = null;
-    unawaited(_push.deleteToken());
+    unawaited(_nearby.stop());
+    _presence.stop();
     unawaited(_store.clear());
     setState(() {
       _session = null;
       _loginNotice = notice;
       _expenses = const [];
       _monthlyChart = null;
+      _insights = null;
+      _insightsError = null;
+      _loadingInsights = false;
+      _insightsRange = null;
       _categories = const [];
       _groups = const [];
       _range = null;
       _loadError = null;
       _autoDetect = AutoDetectState.unsupported;
       _notificationDetect = AutoDetectState.unsupported;
+      _detectPaused = false;
       _syncing = false;
       _syncAgain = false;
       _lastSynced = null;
@@ -445,7 +506,20 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
   }
 
   Future<void> _initAutoDetect() async {
-    if (_notifications.isSupported) {
+    final paused = await _store.autoDetectPaused();
+    if (!mounted || _session == null) {
+      return;
+    }
+    if (paused) {
+      final available =
+          (_notifications.isSupported && await _notifications.isDeclared()) ||
+          (_sms.isSupported && await _sms.isDeclared());
+      if (mounted && _session != null && available) {
+        setState(() => _detectPaused = true);
+      }
+      return;
+    }
+    if (_notifications.isSupported && await _notifications.isDeclared()) {
       final access = await _notifications.hasAccess();
       if (!mounted || _session == null) {
         return;
@@ -492,6 +566,33 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     setState(() => _autoDetect = AutoDetectState.on);
     _incoming ??= _sms.incoming().listen(_onIncomingSms, onError: (_) {});
     _sync();
+  }
+
+  /// Stops reading SMS and payment notifications on this device. Android
+  /// permissions stay granted, so turning it back on needs no prompts.
+  Future<void> _pauseAutoDetect() async {
+    _incoming?.cancel();
+    _incoming = null;
+    _incomingNotifications?.cancel();
+    _incomingNotifications = null;
+    await _store.setAutoDetectPaused(true);
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _detectPaused = true;
+      _autoDetect = AutoDetectState.unsupported;
+      _notificationDetect = AutoDetectState.unsupported;
+    });
+  }
+
+  Future<void> _resumeAutoDetect() async {
+    await _store.setAutoDetectPaused(false);
+    if (!mounted) {
+      return;
+    }
+    setState(() => _detectPaused = false);
+    await _initAutoDetect();
   }
 
   /// Sends the user to Android settings; [didChangeAppLifecycleState] picks
@@ -543,10 +644,126 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
             ),
           ),
         );
+        unawaited(_offerNearbySplit(saved));
       }
     } on ApiException {
       // Picked up by the next sync.
     }
+  }
+
+  bool _splitPromptOpen = false;
+
+  /// Asks the payer (in-app) before splitting an auto-detected debit with
+  /// people currently heard on Nearby. No silent AddExpenses.
+  Future<void> _offerNearbySplit(Expense personal) async {
+    if (personal.isCredit || !personal.isAutoDetected) {
+      return;
+    }
+    final nearby = _nearby.identifiedNearby;
+    if (nearby.isEmpty) {
+      return;
+    }
+    final groupId = _sharedGroupFor(nearby);
+    if (groupId == null) {
+      return;
+    }
+    final candidates = [
+      for (final s in nearby)
+        if (s.sharedGroups.any((g) => g.id == groupId)) s,
+    ];
+    if (candidates.isEmpty) {
+      return;
+    }
+    final context = _navigatorKey.currentContext;
+    if (context == null || !context.mounted || _splitPromptOpen) {
+      return;
+    }
+    final groupName = _groups
+            .where((g) => g.id == groupId)
+            .map((g) => g.name)
+            .firstOrNull ??
+        candidates.first.sharedGroups
+            .where((g) => g.id == groupId)
+            .map((g) => g.name)
+            .firstOrNull ??
+        'group';
+
+    _splitPromptOpen = true;
+    SplitProposalResult? decision;
+    try {
+      decision = await showSplitProposalSheet(
+        context: context,
+        expense: personal,
+        groupName: groupName,
+        candidates: candidates,
+      );
+    } finally {
+      _splitPromptOpen = false;
+    }
+    if (decision == null || !decision.split || !mounted) {
+      return;
+    }
+    final description = personal.title.isNotEmpty
+        ? personal.title
+        : 'Shared payment';
+    try {
+      final saved = await _authed(
+        (token) => _expenseApi.addGroupExpense(
+          accessToken: token,
+          groupId: groupId,
+          amountPaise: personal.amountPaise,
+          description: description,
+          ephemeralIds: decision!.selectedEphemeralIds,
+        ),
+      );
+      if (saved != null && mounted) {
+        _messengerKey.currentState?.showSnackBar(
+          SnackBar(
+            content: Text(
+              'Split ${personal.formattedAmount} with '
+              '${decision.selectedEphemeralIds.length} nearby · $groupName',
+            ),
+          ),
+        );
+      }
+    } on ApiException catch (error) {
+      if (mounted) {
+        _messengerKey.currentState?.showSnackBar(
+          SnackBar(content: Text('Could not split: ${error.message}')),
+        );
+      }
+    }
+  }
+
+  /// Group that covers the most in-range people, preferring ones already
+  /// loaded into [_groups].
+  String? _sharedGroupFor(List<NearbySighting> nearby) {
+    final known = {for (final g in _groups) g.id};
+    final scores = <String, int>{};
+    for (final s in nearby) {
+      for (final g in s.sharedGroups) {
+        if (g.id.isEmpty) {
+          continue;
+        }
+        if (known.isNotEmpty && !known.contains(g.id)) {
+          continue;
+        }
+        scores[g.id] = (scores[g.id] ?? 0) + 1;
+      }
+    }
+    if (scores.isEmpty) {
+      for (final s in nearby) {
+        for (final g in s.sharedGroups) {
+          if (g.id.isNotEmpty) {
+            scores[g.id] = (scores[g.id] ?? 0) + 1;
+          }
+        }
+      }
+    }
+    if (scores.isEmpty) {
+      return null;
+    }
+    return scores.entries.reduce((a, b) => a.value >= b.value ? a : b).key;
   }
 
   /// Imports new payments from every source that is on. A call made while a
@@ -587,6 +804,13 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
             ),
           ),
         );
+        // One confirm sheet at a time; offer split for the newest debit first.
+        for (final expense in saved.reversed) {
+          await _offerNearbySplit(expense);
+          if (!mounted) {
+            return;
+          }
+        }
       }
     } on ApiException catch (error) {
       if (mounted && _session != null) {
@@ -611,6 +835,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     await Future.wait([
       _loadExpenses(),
       _loadChart(),
+      _loadInsights(),
       _sync(),
       _loadGroups(),
       if (_categories.isEmpty) _loadCategories(),
@@ -624,6 +849,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     if (saved != null) {
       setState(() => _merge([saved]));
       unawaited(_loadChart());
+      unawaited(_loadInsights());
     }
   }
 
@@ -640,6 +866,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     );
     if (updated != null && mounted) {
       setState(() => _merge([updated]));
+      unawaited(_loadInsights());
     }
   }
 
@@ -753,9 +980,20 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
                 lastSynced: _lastSynced,
                 onEnableAutoDetect: _enableAutoDetect,
                 onEnableNotifications: _enableNotifications,
+                autoDetectPaused: _detectPaused,
+                onPauseAutoDetect: _pauseAutoDetect,
+                onResumeAutoDetect: _resumeAutoDetect,
                 monthlyChart: _monthlyChart,
                 categories: _categories,
                 onChangeCategory: _changeCategory,
+              ),
+              insights: InsightsScreen(
+                overview: _insights,
+                loading: _loadingInsights,
+                error: _insightsError,
+                dateRange: _insightsRange,
+                onDateRangeChanged: _setInsightsRange,
+                onRefresh: _loadInsights,
               ),
               groups: GroupsScreen(
                 groups: _groups,
@@ -765,6 +1003,16 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
                 onListGroupExpenses: _listGroupExpenses,
                 onAddGroupExpense: _addGroupExpense,
                 onRefresh: _loadGroups,
+              ),
+              nearby: NearbyScreen(
+                supported: _ble.isSupported,
+                running: _nearby.running,
+                canAdvertise: _nearby.canAdvertise,
+                ownId: _nearby.ownId,
+                nearby: _nearby.nearby,
+                error: _nearby.error,
+                onStart: _nearby.start,
+                onStop: _nearby.stop,
               ),
             ),
     );

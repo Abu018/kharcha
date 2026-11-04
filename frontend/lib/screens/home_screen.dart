@@ -47,6 +47,9 @@ class HomeScreen extends StatefulWidget {
     this.lastSynced,
     this.onEnableAutoDetect,
     this.onEnableNotifications,
+    this.autoDetectPaused = false,
+    this.onPauseAutoDetect,
+    this.onResumeAutoDetect,
     this.monthlyChart,
     this.categories = const [],
     this.onChangeCategory,
@@ -79,6 +82,11 @@ class HomeScreen extends StatefulWidget {
 
   /// Called after the user agrees to the notification access explanation.
   final Future<void> Function()? onEnableNotifications;
+
+  /// Reading SMS and notifications is turned off on this device.
+  final bool autoDetectPaused;
+  final Future<void> Function()? onPauseAutoDetect;
+  final Future<void> Function()? onResumeAutoDetect;
 
   /// Spending per month of the current year; hidden while `null`.
   final SpendingChart? monthlyChart;
@@ -377,7 +385,10 @@ class _HomeScreenState extends State<HomeScreen> {
               ? () => _showMonth(DateTime(anchor.year, anchor.month + 1))
               : null,
         ),
-        if (widget.autoDetect != AutoDetectState.unsupported ||
+        if (widget.autoDetectPaused) ...[
+          const SizedBox(height: 14),
+          _AutoDetectPausedCard(onResume: widget.onResumeAutoDetect),
+        ] else if (widget.autoDetect != AutoDetectState.unsupported ||
             widget.notificationDetect != AutoDetectState.unsupported) ...[
           const SizedBox(height: 14),
           _AutoDetectCard(
@@ -390,6 +401,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 ? null
                 : _enableNotifications,
             onSync: widget.onRefresh,
+            onPause: widget.onPauseAutoDetect,
           ),
         ],
         if (widget.monthlyChart case final chart?) ...[
@@ -818,6 +830,7 @@ class _AutoDetectCard extends StatelessWidget {
     required this.onEnableSms,
     required this.onEnableNotifications,
     required this.onSync,
+    required this.onPause,
   });
 
   final AutoDetectState sms;
@@ -827,6 +840,16 @@ class _AutoDetectCard extends StatelessWidget {
   final Future<void> Function()? onEnableSms;
   final Future<void> Function()? onEnableNotifications;
   final Future<void> Function()? onSync;
+  final Future<void> Function()? onPause;
+
+  Widget? get _pauseButton => onPause == null
+      ? null
+      : TextButton(
+          key: const Key('pause-auto-detect'),
+          onPressed: onPause,
+          style: TextButton.styleFrom(foregroundColor: AppColors.muted),
+          child: const Text('Turn off on this device'),
+        );
 
   bool get _smsOff => sms == AutoDetectState.off;
   bool get _notificationsOff => notifications == AutoDetectState.off;
@@ -910,6 +933,7 @@ class _AutoDetectCard extends StatelessWidget {
                 onPressed: onEnableSms,
                 child: const Text('Turn on auto-detect'),
               ),
+            ?_pauseButton,
           ],
         ),
       );
@@ -993,6 +1017,7 @@ class _AutoDetectCard extends StatelessWidget {
               onPressed: onEnableSms,
               child: const Text('Also read bank SMS'),
             ),
+          ?_pauseButton,
         ],
       ),
     );
@@ -1010,6 +1035,49 @@ class _AutoDetectCard extends StatelessWidget {
       return '${diff.inHours} h ago';
     }
     return _dateLabel(time);
+  }
+}
+
+class _AutoDetectPausedCard extends StatelessWidget {
+  const _AutoDetectPausedCard({required this.onResume});
+
+  final Future<void> Function()? onResume;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      key: const Key('auto-detect-paused'),
+      padding: const EdgeInsets.fromLTRB(16, 8, 8, 8),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 10,
+            height: 10,
+            decoration: const BoxDecoration(
+              color: AppColors.muted,
+              shape: BoxShape.circle,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              'Auto-detect is off on this device',
+              style: theme.textTheme.titleSmall,
+            ),
+          ),
+          TextButton(
+            key: const Key('resume-auto-detect'),
+            onPressed: onResume,
+            child: const Text('Turn on'),
+          ),
+        ],
+      ),
+    );
   }
 }
 

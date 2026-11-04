@@ -11,11 +11,9 @@ on:
       - "backend/**"
   workflow_dispatch:
 
-# Deploys never overlap: a running one finishes, and only the newest waiting
-# push is deployed after it.
 concurrency:
   group: backend-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 defaults:
   run:
@@ -38,79 +36,3 @@ jobs:
           fi
       - run: go vet ./...
       - run: go test ./...
-
-  deploy:
-    needs: test
-    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    environment: production
-    steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-go@v6
-        with:
-          go-version-file: backend/go.mod
-          cache-dependency-path: backend/go.sum
-
-      - name: Build for the server (linux/amd64)
-        env:
-          CGO_ENABLED: "0"
-          GOOS: linux
-          GOARCH: amd64
-        run: go build -trimpath -ldflags "-s -w" -o kharcha-api ./cmd/api
-
-      - name: Set up SSH
-        working-directory: .
-        env:
-          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
-          SSH_HOST: ${{ secrets.SSH_HOST }}
-        run: |
-          for name in SSH_PRIVATE_KEY SSH_HOST; do
-            if [ -z "${!name}" ]; then
-              echo "::error::Secret $name is not set (Settings → Secrets and variables → Actions)"
-              exit 1
-            fi
-          done
-          install -m 700 -d ~/.ssh
-          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/deploy_key
-          chmod 600 ~/.ssh/deploy_key
-          if ! ssh-keyscan -T 15 -H "$SSH_HOST" >> ~/.ssh/known_hosts; then
-            echo "::error::Cannot reach $SSH_HOST on port 22. Allow SSH (TCP 22) in the server's security group."
-            exit 1
-          fi
-
-      - name: Upload and restart
-        env:
-          SSH_HOST: ${{ secrets.SSH_HOST }}
-          SSH_USER: ${{ secrets.SSH_USER }}
-          APP_DIR: ${{ vars.DEPLOY_DIR || '/home/ubuntu/kharcha/backend' }}
-        run: |
-          ssh_opts="-i $HOME/.ssh/deploy_key -o StrictHostKeyChecking=yes"
-          scp $ssh_opts kharcha-api "$SSH_USER@$SSH_HOST:$APP_DIR/kharcha-api.new"
-          ssh $ssh_opts "$SSH_USER@$SSH_HOST" "APP_DIR='$APP_DIR' bash -s" <<'EOF'
-          set -euo pipefail
-          cd "$APP_DIR"
-          chmod +x kharcha-api.new
-          if [ -f kharcha-api ]; then cp kharcha-api kharcha-api.prev; fi
-          mv kharcha-api.new kharcha-api
-          sudo systemctl restart kharcha
-          sleep 3
-          if ! systemctl is-active --quiet kharcha; then
-            echo "kharcha failed to start; rolling back"
-            sudo journalctl -u kharcha -n 40 --no-pager
-            if [ -f kharcha-api.prev ]; then
-              mv kharcha-api.prev kharcha-api
-              sudo systemctl restart kharcha
-            fi
-            exit 1
-          fi
-          echo "kharcha is running"
-          EOF
-
-      - name: Check the API answers
-        env:
-          SSH_HOST: ${{ secrets.SSH_HOST }}
-          SSH_USER: ${{ secrets.SSH_USER }}
-          API_PORT: ${{ vars.DEPLOY_PORT || '8083' }}
-        run: |
-          ssh -i ~/.ssh/deploy_key "$SSH_USER@$SSH_HOST" \
-            "curl -fsS -o /dev/null -w 'GET /docs -> %{http_code}\n' http://127.0.0.1:$API_PORT/docs"

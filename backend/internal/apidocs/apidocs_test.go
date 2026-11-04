@@ -38,6 +38,7 @@ func TestSpecListsEveryRoute(t *testing.T) {
 		"/api/v1/register", "/api/v1/login", "/api/v1/auth/refresh",
 		"/api/v1/profile", "/api/v1/users",
 		"/api/v1/expense", "/api/v1/expenses", "/api/v1/expenses/monthly",
+		"/api/v1/analytics/overview",
 		"/api/v1/expenses/{id}/category", "/api/v1/categories",
 		"/api/v1/create-group", "/api/v1/groups", "/api/v1/groups/{groupID}/expenses",
 		"/api/v1/presence/temporary-id",

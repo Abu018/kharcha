@@ -30,6 +30,8 @@ tags:
     description: Shared expenses with friends
   - name: Presence
     description: Rotating BLE temporary IDs and nearby-user lookup
+  - name: Analytics
+    description: Spending insights, category pie and pattern charts
 
 paths:
   /api/v1/register:
@@ -258,6 +260,36 @@ paths:
                   - $ref: "#/components/schemas/Envelope"
                   - properties:
                       data: { $ref: "#/components/schemas/Chart" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /api/v1/analytics/overview:
+    get:
+      tags: [Analytics]
+      summary: Spending insights for charts and tip cards
+      description: |
+        Defaults to the current calendar month (India). Amounts are paise.
+        Includes month-vs-previous summary, category breakdown, top merchants,
+        weekday/weekend and hourly patterns, personal vs split, and balances.
+      parameters:
+        - name: from
+          in: query
+          description: First day inclusive (YYYY-MM-DD, India)
+          schema: { type: string, format: date, example: "2026-11-01" }
+        - name: to
+          in: query
+          description: Last day inclusive (YYYY-MM-DD, India)
+          schema: { type: string, format: date, example: "2026-11-30" }
+      responses:
+        "200":
+          description: Overview payload for the Insights tab
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - properties:
+                      data: { $ref: "#/components/schemas/AnalyticsOverview" }
         "400": { $ref: "#/components/responses/Error" }
         "401": { $ref: "#/components/responses/Unauthorized" }
 
@@ -624,6 +656,96 @@ components:
             properties:
               x: { type: string, example: Jan }
               y: { type: integer, description: Paise }
+
+    AnalyticsOverview:
+      type: object
+      properties:
+        from: { type: string, format: date }
+        to: { type: string, format: date }
+        currency: { type: string, example: INR }
+        summary:
+          type: object
+          properties:
+            total_spent: { type: integer }
+            transaction_count: { type: integer }
+            average_transaction: { type: integer }
+            daily_average: { type: integer }
+            largest_expense:
+              type: object
+              nullable: true
+              properties:
+                id: { type: string, format: uuid }
+                vendor: { type: string }
+                category: { type: string }
+                amount_paise: { type: integer }
+                occurred_at: { type: string, format: date-time }
+            previous_period:
+              type: object
+              properties:
+                total_spent: { type: integer }
+                change_percent: { type: number }
+        categories:
+          type: array
+          items:
+            type: object
+            properties:
+              name: { type: string }
+              amount: { type: integer }
+              percent: { type: number }
+              count: { type: integer }
+              change_percent: { type: number }
+        merchants:
+          type: array
+          items:
+            type: object
+            properties:
+              merchant: { type: string }
+              category: { type: string }
+              amount: { type: integer }
+              count: { type: integer }
+              last_visit: { type: string, format: date-time }
+        weekday_weekend:
+          type: object
+          properties:
+            weekday_total: { type: integer }
+            weekend_total: { type: integer }
+            weekday_daily_avg: { type: integer }
+            weekend_daily_avg: { type: integer }
+            weekend_ratio: { type: number }
+        by_weekday:
+          type: array
+          items:
+            type: object
+            properties:
+              label: { type: string, example: Mon }
+              amount: { type: integer }
+        by_hour:
+          type: array
+          items:
+            type: object
+            properties:
+              hour: { type: integer, minimum: 0, maximum: 23 }
+              amount: { type: integer }
+        personal_vs_split:
+          type: object
+          properties:
+            personal_paise: { type: integer }
+            split_paise: { type: integer }
+        balances:
+          type: object
+          properties:
+            you_owe_paise: { type: integer }
+            you_are_owed_paise: { type: integer }
+        insights:
+          type: array
+          items:
+            type: object
+            properties:
+              type: { type: string }
+              message: { type: string }
+              category: { type: string }
+              merchant: { type: string }
+              change_percent: { type: number }
 
     Group:
       type: object

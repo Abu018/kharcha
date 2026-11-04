@@ -195,17 +195,25 @@ class ExpenseApi {
   }
 
   /// `POST /api/v1/groups/{groupId}/expenses`. Amount is in paise.
+  ///
+  /// When [ephemeralIds] is set, the server splits among the payer and the
+  /// nearby people those IDs resolve to in this group.
   Future<GroupExpense> addGroupExpense({
     required String accessToken,
     required String groupId,
     required int amountPaise,
     required String description,
+    List<String> ephemeralIds = const [],
   }) async {
     final envelope = await _api.send(
       'POST',
       '/api/v1/groups/$groupId/expenses',
       accessToken: accessToken,
-      body: {'amount': amountPaise, 'description': description},
+      body: {
+        'amount': amountPaise,
+        'description': description,
+        if (ephemeralIds.isNotEmpty) 'ephemeral_ids': ephemeralIds,
+      },
     );
     final data = envelope['data'];
     if (data is! Map<String, dynamic>) {

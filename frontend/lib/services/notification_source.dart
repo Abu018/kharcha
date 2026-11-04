@@ -42,6 +42,10 @@ class NotificationSource {
   bool get isSupported =>
       !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
 
+  /// Whether this build ships the listener service; beta builds leave it out
+  /// and payment detection is hidden.
+  Future<bool> isDeclared() => _call<bool>('isDeclared', false);
+
   /// Whether the user has turned on notification access for this app.
   Future<bool> hasAccess() => _call<bool>('hasAccess', false);
 

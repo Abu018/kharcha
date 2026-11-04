@@ -3,6 +3,7 @@ package routes
 import (
 	"context"
 	"my_app/backend/cmd/middleware"
+	"my_app/backend/internal/analytics"
 	"my_app/backend/internal/expense"
 	"my_app/backend/internal/handler"
 	"my_app/backend/internal/postgres"
@@ -32,6 +33,9 @@ func RegisterExpenseRoutes(
 	expenseService := expense.NewService(expenseRepo, cfg.Classifier)
 	presenceSvc := presence.NewService(secretKeys)
 	expenseHandler := handler.NewExpenseHandler(expenseService, presenceSvc)
+	analyticsHandler := handler.NewAnalyticsHandler(
+		analytics.NewService(postgres.NewAnalyticsRepo(db)),
+	)
 	go expenseService.RunBackfill(context.Background(), time.Minute)
 	profileHandler := handler.NewProfileHandler(profile.NewService(repo))
 	presenceHandler := handler.NewPresenceHandler(secretKeys, presenceSvc)
@@ -55,6 +59,7 @@ func RegisterExpenseRoutes(
 			p.Post("/expense", expenseHandler.Expense)
 			p.Get("/expenses", expenseHandler.List)
 			p.Get("/expenses/monthly", expenseHandler.Monthly)
+			p.Get("/analytics/overview", analyticsHandler.Overview)
 			p.Post("/create-group", expenseHandler.CreateGroup)
 			p.Get("/groups", expenseHandler.ListGroups)
 			p.Get("/groups/{groupID}/expenses", expenseHandler.ListExpense)

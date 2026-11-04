@@ -13,10 +13,19 @@ class SessionStore {
 
   static const _refreshTokenKey = 'refresh_token';
   static const _emailKey = 'last_email';
+  static const _detectPausedKey = 'auto_detect_paused';
 
   Future<String?> refreshToken() => _read(_refreshTokenKey);
 
   Future<String?> lastEmail() => _read(_emailKey);
+
+  /// Whether reading SMS and payment notifications is turned off on this
+  /// device. Kept across sign-outs, so each phone remembers its own choice.
+  Future<bool> autoDetectPaused() async =>
+      await _read(_detectPausedKey) == 'true';
+
+  Future<void> setAutoDetectPaused(bool paused) =>
+      _write(_detectPausedKey, paused ? 'true' : 'false');
 
   Future<void> save({required String refreshToken, String? email}) async {
     await _write(_refreshTokenKey, refreshToken);

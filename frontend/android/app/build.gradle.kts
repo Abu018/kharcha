@@ -32,6 +32,9 @@ android {
     // play: what goes to Google Play, without SMS access.
     // full: also reads bank SMS (src/full/AndroidManifest.xml adds the
     // permissions); for testing and distribution outside Play.
+    // beta: for sharing over WhatsApp/Drive. No SMS permissions, because
+    // Play Protect blocks sideloaded apps that request them; allows HTTP
+    // to the dev server.
     flavorDimensions += "store"
     productFlavors {
         create("play") {
@@ -40,6 +43,10 @@ android {
         create("full") {
             dimension = "store"
             applicationIdSuffix = ".full"
+        }
+        create("beta") {
+            dimension = "store"
+            applicationIdSuffix = ".beta"
         }
     }
 

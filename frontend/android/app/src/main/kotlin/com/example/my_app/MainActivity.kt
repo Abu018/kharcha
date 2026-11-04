@@ -28,14 +28,18 @@ import java.security.MessageDigest
  *   payment notifications [PaymentNotificationListener] has queued.
  * - `my_app/notifications/incoming` (event channel): payment notifications
  *   posted while the app runs.
+ * - `my_app/ble` / `my_app/ble/advertisements`: advertise the backend
+ *   temporary ID and scan for other Kharcha phones.
  */
 class MainActivity : FlutterActivity() {
     private var pendingPermissionResult: MethodChannel.Result? = null
     private var smsReceiver: BroadcastReceiver? = null
+    private var presenceBle: PresenceBle? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         val messenger = flutterEngine.dartExecutor.binaryMessenger
+        presenceBle = PresenceBle(this, messenger)
 
         MethodChannel(messenger, "my_app/sms").setMethodCallHandler { call, result ->
             when (call.method) {
@@ -87,6 +91,7 @@ class MainActivity : FlutterActivity() {
 
         MethodChannel(messenger, "my_app/notifications").setMethodCallHandler { call, result ->
             when (call.method) {
+                "isDeclared" -> result.success(listenerDeclared())
                 "hasAccess" -> result.success(hasNotificationAccess())
                 "openSettings" -> {
                     openNotificationSettings()
@@ -117,10 +122,27 @@ class MainActivity : FlutterActivity() {
     override fun onDestroy() {
         unregisterSmsReceiver()
         PaymentNotifications.listener = null
+        presenceBle?.dispose()
+        presenceBle = null
         super.onDestroy()
     }
 
+    @Deprecated("Deprecated in Java")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        @Suppress("DEPRECATION")
+        super.onActivityResult(requestCode, resultCode, data)
+        presenceBle?.onActivityResult(requestCode, resultCode)
+    }
+
     private fun listenerComponent() = ComponentName(this, PaymentNotificationListener::class.java)
+
+    /** False when the manifest removes the listener service (beta builds). */
+    private fun listenerDeclared(): Boolean = try {
+        packageManager.getServiceInfo(listenerComponent(), PackageManager.MATCH_DISABLED_COMPONENTS)
+        true
+    } catch (_: PackageManager.NameNotFoundException) {
+        false
+    }
 
     private fun hasNotificationAccess(): Boolean {
         val enabled = Settings.Secure.getString(contentResolver, "enabled_notification_listeners")
@@ -153,6 +175,9 @@ class MainActivity : FlutterActivity() {
         grantResults: IntArray,
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (presenceBle?.onRequestPermissionsResult(requestCode, grantResults) == true) {
+            return
+        }
         if (requestCode == SMS_PERMISSION_REQUEST) {
             pendingPermissionResult?.success(hasSmsPermission())
             pendingPermissionResult = null

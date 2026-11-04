@@ -5,4 +5,7 @@
     <uses-permission android:name="android.permission.READ_SMS"/>
     <uses-permission android:name="android.permission.RECEIVE_SMS"/>
     <uses-feature android:name="android.hardware.telephony" android:required="false"/>
+    <!-- The dev server is plain HTTP (http://<ec2-ip>:8083); release builds
+         block cleartext unless allowed. Drop this once the API has HTTPS. -->
+    <application android:usesCleartextTraffic="true"/>
 </manifest>

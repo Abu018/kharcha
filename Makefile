@@ -2,6 +2,8 @@
 
 BACKEND := backend
 FRONTEND := frontend
+# Android flavor: full (reads SMS), beta (sideload testers) or play (store).
+FLAVOR ?= full
 
 .PHONY: help
 help: ## Show available targets
@@ -35,7 +37,7 @@ api-tidy: ## Sync go.mod and go.sum
 .PHONY: app
 app: ## Run the Flutter app; needs API_BASE_URL, e.g. make app API_BASE_URL=http://host:port
 	@test -n "$(API_BASE_URL)" || (echo "Set API_BASE_URL, e.g. make app API_BASE_URL=http://host:port" && exit 1)
-	cd $(FRONTEND) && flutter run --dart-define=API_BASE_URL=$(API_BASE_URL)
+	cd $(FRONTEND) && flutter run --flavor $(FLAVOR) --dart-define=API_BASE_URL=$(API_BASE_URL)
 
 .PHONY: app-deps
 app-deps: ## Fetch Dart packages
@@ -52,7 +54,7 @@ app-lint: ## Analyze the Dart code
 .PHONY: app-build
 app-build: ## Build a release APK
 	@test -n "$(API_BASE_URL)" || (echo "Set API_BASE_URL, e.g. make app-build API_BASE_URL=https://api.example.com" && exit 1)
-	cd $(FRONTEND) && flutter build apk --release --dart-define=API_BASE_URL=$(API_BASE_URL)
+	cd $(FRONTEND) && flutter build apk --release --flavor $(FLAVOR) --dart-define=API_BASE_URL=$(API_BASE_URL)
 
 # --- combined ----------------------------------------------------------------
 

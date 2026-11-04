@@ -1,8 +1,19 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET"/>
-    <!-- Push notifications (Firebase Cloud Messaging), asked for at
-         runtime on Android 13+. -->
-    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <!-- Nearby presence: advertise this user's rotating ID and scan for
+         other Kharcha phones. Location is only needed on Android 11 and
+         older; Android 12+ scan is marked neverForLocation. -->
+    <uses-permission android:name="android.permission.BLUETOOTH"
+        android:maxSdkVersion="30"/>
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN"
+        android:maxSdkVersion="30"/>
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"
+        android:maxSdkVersion="30"/>
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN"
+        android:usesPermissionFlags="neverForLocation"/>
+    <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE"/>
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT"/>
+    <uses-feature android:name="android.hardware.bluetooth_le" android:required="false"/>
     <!-- SMS permissions live in src/full/AndroidManifest.xml; the play
          flavor leaves them out and the app hides SMS import. -->
     <application

@@ -37,8 +37,6 @@ dependencies:
   http: ^1.5.0
   flutter_secure_storage: ^11.2.0
   fl_chart: ^1.3.0
-  firebase_core: ^5.1.0
-  firebase_messaging: ^17.0.1
 
 dev_dependencies:
   flutter_test:
@@ -50,6 +48,18 @@ dev_dependencies:
   # package. See that file for information about deactivating specific lint
   # rules and activating additional ones.
   flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.14.4
+
+# App icon, regenerated with `dart run flutter_launcher_icons`. The adaptive
+# foreground is padded with the same #1B242C as the background so launcher
+# masks never clip the symbol.
+flutter_launcher_icons:
+  android: true
+  ios: false
+  image_path: assets/icon/app_icon.png
+  adaptive_icon_background: "#1B242C"
+  adaptive_icon_foreground: assets/icon/app_icon_foreground.png
+  min_sdk_android: 21
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec

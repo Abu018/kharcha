@@ -10,6 +10,9 @@ type Expense struct {
 	Amount      int64     `json:"amount" gorm:"not null"`
 	Description string    `json:"description" gorm:"not null"`
 }
+
+func (Expense) TableName() string { return "expenses" }
+
 type ExepenseItems struct {
 	BaseModel
 	ExpenseID   uuid.UUID `gorm:"type:uuid;not null" json:"expense_id"`
@@ -17,3 +20,5 @@ type ExepenseItems struct {
 	UserID      uuid.UUID `json:"user_id" gorm:"not null"`
 	AmountToPay int       `json:"amount" gorm:"not null"`
 }
+
+func (ExepenseItems) TableName() string { return "exepense_items" }
