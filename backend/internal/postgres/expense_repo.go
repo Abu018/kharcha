@@ -237,7 +237,7 @@ func (r *ExpenseRepo) ListExpense(userID, groupID uuid.UUID) ([]models.Expense, 
 	return result, err
 }
 
-func (r *ExpenseRepo) AddExpenses(userID, groupID uuid.UUID, amount int64, description string) (models.Expense, error) {
+func (r *ExpenseRepo) AddExpenses(userID, groupID uuid.UUID, amount int64, description string, participants []uuid.UUID) (models.Expense, error) {
 	ok, err := r.inGroup(userID, groupID)
 	if err != nil {
 		return models.Expense{}, err
@@ -251,7 +251,41 @@ func (r *ExpenseRepo) AddExpenses(userID, groupID uuid.UUID, amount int64, descr
 		Amount:      amount,
 		Description: description,
 	}
-	if err := r.db.Create(&row).Error; err != nil {
+	err = r.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(&row).Error; err != nil {
+			return err
+		}
+		if len(participants) == 0 {
+			return nil
+		}
+		seen := map[uuid.UUID]struct{}{userID: {}}
+		people := make([]uuid.UUID, 0, len(participants)+1)
+		people = append(people, userID)
+		for _, id := range participants {
+			if _, dup := seen[id]; dup || id == uuid.Nil {
+				continue
+			}
+			seen[id] = struct{}{}
+			people = append(people, id)
+		}
+		n := int64(len(people))
+		share := amount / n
+		rem := amount % n
+		items := make([]models.ExepenseItems, len(people))
+		for i, id := range people {
+			pay := share
+			if int64(i) < rem {
+				pay++
+			}
+			items[i] = models.ExepenseItems{
+				ExpenseID:   row.ID,
+				UserID:      id,
+				AmountToPay: int(pay),
+			}
+		}
+		return tx.CreateInBatches(items, batchSize).Error
+	})
+	if err != nil {
 		return models.Expense{}, err
 	}
 	return row, nil

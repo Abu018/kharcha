@@ -30,10 +30,11 @@ func RegisterExpenseRoutes(
 	authService := register.NewAuthService(repo, cfg.Keycloak, secretKeys)
 	authHandler := handler.NewAuthHandler(authService)
 	expenseService := expense.NewService(expenseRepo, cfg.Classifier)
-	expenseHandler := handler.NewExpenseHandler(expenseService)
+	presenceSvc := presence.NewService(secretKeys)
+	expenseHandler := handler.NewExpenseHandler(expenseService, presenceSvc)
 	go expenseService.RunBackfill(context.Background(), time.Minute)
 	profileHandler := handler.NewProfileHandler(profile.NewService(repo))
-	presenceHandler := handler.NewPresenceHandler(secretKeys, presence.NewService(secretKeys))
+	presenceHandler := handler.NewPresenceHandler(secretKeys, presenceSvc)
 
 	kc := gocloak.NewClient(cfg.Keycloak.URL)
 

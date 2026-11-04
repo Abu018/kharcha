@@ -403,6 +403,10 @@ paths:
     post:
       tags: [Groups]
       summary: Add an expense to a group
+      description: |
+        When `ephemeral_ids` from a BLE scan are included, the server resolves
+        them to members of this group and splits the amount equally among the
+        payer and those people.
       requestBody:
         required: true
         content:
@@ -413,6 +417,10 @@ paths:
               properties:
                 amount: { type: integer, description: Paise, example: 125000 }
                 description: { type: string, example: Dinner }
+                ephemeral_ids:
+                  type: array
+                  items: { type: string, minLength: 16, maxLength: 16 }
+                  description: Nearby temporary IDs heard over Bluetooth
       responses:
         "201":
           description: "`expense saved`"

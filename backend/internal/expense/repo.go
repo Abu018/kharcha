@@ -57,5 +57,7 @@ type Repo interface {
 	// first, with the owner (User) and Members.User preloaded.
 	ListGroups(userID uuid.UUID) ([]models.Group, error)
 	ListExpense(userID, groupID uuid.UUID) ([]models.Expense, error)
-	AddExpenses(userID, groupID uuid.UUID, amount int64, description string) (models.Expense, error)
+	// AddExpenses creates a group expense. When participants is non-empty it
+	// also writes equal ExepenseItems for the payer plus those people.
+	AddExpenses(userID, groupID uuid.UUID, amount int64, description string, participants []uuid.UUID) (models.Expense, error)
 }

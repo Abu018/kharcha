@@ -397,8 +397,8 @@ func (s *Service) ListExpense(userID, groupID uuid.UUID) ([]Expense, error) {
 	return expenses, nil
 }
 
-func (s *Service) AddExpenses(userID, groupID uuid.UUID, amount int64, description string) (Expense, error) {
-	row, err := s.repo.AddExpenses(userID, groupID, amount, description)
+func (s *Service) AddExpenses(userID, groupID uuid.UUID, amount int64, description string, participants []uuid.UUID) (Expense, error) {
+	row, err := s.repo.AddExpenses(userID, groupID, amount, description, participants)
 	if err != nil {
 		return Expense{}, err
 	}

@@ -6,6 +6,7 @@ import (
 	"log"
 	"my_app/backend/cmd/middleware"
 	"my_app/backend/internal/adapters/response"
+	"my_app/backend/internal/dto"
 	"my_app/backend/internal/expense"
 	"my_app/backend/internal/models"
 	"net/http"
@@ -47,12 +48,17 @@ func parseDateRange(start, end string) (from, to time.Time, err error) {
 	return from, to, nil
 }
 
-type ExpenseHandler struct {
-	expense *expense.Service
+type nearbyResolver interface {
+	Resolve(viewer uuid.UUID, in []dto.Sighting) (dto.NearbyUsers, error)
 }
 
-func NewExpenseHandler(expense *expense.Service) *ExpenseHandler {
-	return &ExpenseHandler{expense: expense}
+type ExpenseHandler struct {
+	expense *expense.Service
+	nearby  nearbyResolver
+}
+
+func NewExpenseHandler(expense *expense.Service, nearby nearbyResolver) *ExpenseHandler {
+	return &ExpenseHandler{expense: expense, nearby: nearby}
 }
 
 func userIDFrom(w http.ResponseWriter, r *http.Request) (uuid.UUID, bool) {
@@ -325,9 +331,10 @@ func (h *ExpenseHandler) ListExpense(w http.ResponseWriter, r *http.Request) {
 }
 
 type addGroupExpenseInput struct {
-	Amount      int64  `json:"amount"`
-	Description string `json:"description"`
-	Name        string `json:"name"`
+	Amount       int64    `json:"amount"`
+	Description  string   `json:"description"`
+	Name         string   `json:"name"`
+	EphemeralIDs []string `json:"ephemeral_ids"`
 }
 
 func (h *ExpenseHandler) AddExpenses(w http.ResponseWriter, r *http.Request) {
@@ -358,7 +365,16 @@ func (h *ExpenseHandler) AddExpenses(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	result, err := h.expense.AddExpenses(userID, groupID, input.Amount, description)
+	participants, err := h.participantsFromEphemeral(userID, groupID, input.EphemeralIDs)
+	if err != nil {
+		log.Printf("resolve nearby for group expense: %v", err)
+		response.JSON(w, http.StatusInternalServerError, response.Response{
+			Success: false,
+			Message: "failed to resolve nearby users",
+		})
+		return
+	}
+	result, err := h.expense.AddExpenses(userID, groupID, input.Amount, description, participants)
 	if err != nil {
 		if errors.Is(err, expense.ErrNotGroupMember) {
 			response.JSON(w, http.StatusNotFound, response.Response{
@@ -379,6 +395,39 @@ func (h *ExpenseHandler) AddExpenses(w http.ResponseWriter, r *http.Request) {
 		Message: "expense saved",
 		Data:    result,
 	})
+}
+
+// participantsFromEphemeral turns BLE IDs into group members who share
+// groupID with the payer. Unknown or out-of-group IDs are skipped.
+func (h *ExpenseHandler) participantsFromEphemeral(payer, groupID uuid.UUID, ids []string) ([]uuid.UUID, error) {
+	if len(ids) == 0 || h.nearby == nil {
+		return nil, nil
+	}
+	sightings := make([]dto.Sighting, 0, len(ids))
+	for _, id := range ids {
+		id = strings.ToLower(strings.TrimSpace(id))
+		if id == "" {
+			continue
+		}
+		sightings = append(sightings, dto.Sighting{EphemeralID: id, Seen: 1})
+	}
+	if len(sightings) == 0 {
+		return nil, nil
+	}
+	out, err := h.nearby.Resolve(payer, sightings)
+	if err != nil {
+		return nil, err
+	}
+	participants := make([]uuid.UUID, 0, len(out.Users))
+	for _, u := range out.Users {
+		for _, g := range u.SharedGroups {
+			if g.ID == groupID {
+				participants = append(participants, u.UserID)
+				break
+			}
+		}
+	}
+	return participants, nil
 }
 
 type updateCategoryInput struct {
@@ -444,7 +493,6 @@ func (h *ExpenseHandler) UpdateCategory(w http.ResponseWriter, r *http.Request) 
 func (h *ExpenseHandler) ListCategory(w http.ResponseWriter, r *http.Request) {
 	result, err := h.expense.ListCategory()
 	if err != nil {
-		log.Printf("list categories: %v", err)
 		response.JSON(w, http.StatusInternalServerError, response.Response{
 			Success: false,
 			Message: "failed to load categories",
